@@ -505,6 +505,8 @@ class FlatExprVisitor : public cel::AstVisitor {
       std::vector<std::unique_ptr<ProgramOptimizer>> program_optimizers,
       const absl::flat_hash_map<int64_t, cel::ast_internal::Reference>&
           reference_map,
+      absl::flat_hash_map<int64_t, cel::ast_internal::Type>& type_map,
+      bool is_checked,
       const cel::TypeProvider& type_provider, IssueCollector& issue_collector,
       ProgramBuilder& program_builder, PlannerContext& extension_context,
       bool enable_optional_types)
@@ -515,6 +517,8 @@ class FlatExprVisitor : public cel::AstVisitor {
         options_(options),
         program_optimizers_(std::move(program_optimizers)),
         issue_collector_(issue_collector),
+        type_map_(std::move(type_map)),
+        is_checked_(is_checked),
         program_builder_(program_builder),
         extension_context_(extension_context),
         enable_optional_types_(enable_optional_types) {
@@ -1666,12 +1670,147 @@ class FlatExprVisitor : public cel::AstVisitor {
     suppressed_branches_.insert(expr);
   }
 
+  cel::Type ConvertAstTypeToCelType(const cel::ast_internal::Type& ast_type) {
+    using CelType = cel::Type;
+
+    auto arena = extension_context_.MutableArena();
+
+    // convert ast_internal::Type to cel::Type
+    if (ast_type.has_dyn()) {
+      return cel::DynType();
+    } else if (ast_type.has_null()) {
+      return cel::NullType();
+    } else if (ast_type.has_primitive()) {
+      switch (ast_type.primitive()) {
+        case cel::ast_internal::PrimitiveType::kBool:
+          return cel::BoolType();
+        case cel::ast_internal::PrimitiveType::kInt64:
+          return cel::IntType();
+        case cel::ast_internal::PrimitiveType::kUint64:
+          return cel::UintType();
+        case cel::ast_internal::PrimitiveType::kDouble:
+          return cel::DoubleType();
+        case cel::ast_internal::PrimitiveType::kString:
+          return cel::StringType();
+        case cel::ast_internal::PrimitiveType::kBytes:
+          return cel::BytesType();
+        default:
+          return cel::DynType();
+      }
+    } else if (ast_type.has_wrapper()) {
+      switch (ast_type.wrapper()) {
+        case cel::ast_internal::PrimitiveType::kBool:
+          return cel::BoolType();
+        case cel::ast_internal::PrimitiveType::kInt64:
+          return cel::IntType();
+        case cel::ast_internal::PrimitiveType::kUint64:
+          return cel::UintType();
+        case cel::ast_internal::PrimitiveType::kDouble:
+          return cel::DoubleType();
+        case cel::ast_internal::PrimitiveType::kString:
+          return cel::StringType();
+        case cel::ast_internal::PrimitiveType::kBytes:
+          return cel::BytesType();
+        default:
+          return cel::DynType();
+      }
+    } else if (ast_type.has_well_known()) {
+      switch (ast_type.well_known()) {
+        case cel::ast_internal::WellKnownType::kAny:
+          return cel::DynType();
+        case cel::ast_internal::WellKnownType::kTimestamp:
+          return cel::TimestampType();
+        case cel::ast_internal::WellKnownType::kDuration:
+          return cel::DurationType();
+        default:
+          return cel::DynType();
+      }
+    } else if (ast_type.has_list_type()) {
+      const auto& list = ast_type.list_type();
+      if (list.has_elem_type()) {
+        return cel::ListType(arena, ConvertAstTypeToCelType(list.elem_type()));
+      }
+      return cel::ListType();
+    } else if (ast_type.has_map_type()) {
+      const auto& map = ast_type.map_type();
+      if (!map.has_key_type() || !map.has_value_type()) {
+        return cel::MapType();
+      }
+      CelType key_type, value_type;
+      if (map.has_key_type()) {
+        key_type = ConvertAstTypeToCelType(map.key_type());
+      }
+      if (map.has_value_type()) {
+        value_type = ConvertAstTypeToCelType(map.value_type());
+      }
+      return cel::MapType(arena, key_type, value_type);
+    } else if (ast_type.has_function()) {
+      const auto& function = ast_type.function();
+      CelType result_type;
+      std::vector<CelType> arg_types;
+
+      if (!function.has_result_type() ) {
+        result_type = cel::DynType();
+      } else {
+        result_type = ConvertAstTypeToCelType(function.result_type());
+      }
+      for (const auto& arg : function.arg_types()) {
+        arg_types.push_back(ConvertAstTypeToCelType(arg));
+      }
+      return cel::FunctionType(arena, result_type, std::move(arg_types));
+    } else if (ast_type.has_message_type()) {
+      const auto& name = ast_type.message_type().type();
+      auto result = type_provider_.FindType(name);
+      if (!result.ok() || !(*result).has_value()) {
+        return cel::DynType();
+      }
+      return **result;
+    } else if (ast_type.has_type_param()) {
+      const auto& param = ast_type.type_param().type();
+      return cel::TypeParamType(param);
+    } else if (ast_type.has_type()) {
+      const auto& param = ast_type.type();
+      return cel::TypeType(arena, ConvertAstTypeToCelType(param));
+    } else if (ast_type.has_error()) {
+      return cel::ErrorType();
+    } else if (ast_type.has_abstract_type()) {
+      const auto& name = ast_type.abstract_type().name();
+      const auto& params = ast_type.abstract_type().parameter_types();
+      std::vector<CelType> param_types;
+      for (const auto& param : params) {
+        param_types.push_back(ConvertAstTypeToCelType(param));
+      }
+      return cel::OpaqueType(arena, name, param_types);
+    } else {
+      return cel::DynType();
+    }
+  }
+
+  absl::optional<std::vector<cel::Type>> ExtractArgTypes(
+      const cel::CallExpr* call_expr) {
+    if (!is_checked_) {
+      return absl::nullopt;
+    }
+    std::vector<cel::Type> arg_types;
+    for (const auto& arg : call_expr->args()) {
+      const auto iter = type_map_.find(arg.id());
+      if (iter == type_map_.end()) {
+        arg_types.push_back(cel::DynType());
+      } else {
+        const auto& ast_type = iter->second;
+        arg_types.push_back(ConvertAstTypeToCelType(ast_type));
+      }
+    }
+    return arg_types;
+  }
+
   void AddResolvedFunctionStep(const cel::CallExpr* call_expr,
                                const cel::Expr* expr,
                                absl::string_view function) {
     // Establish the search criteria for a given function.
     bool receiver_style = call_expr->has_target();
     size_t num_args = call_expr->args().size() + (receiver_style ? 1 : 0);
+    absl::optional<std::vector<cel::Type>> arg_types = ExtractArgTypes(call_expr);
 
     // First, search for lazily defined function overloads.
     // Lazy functions shadow eager functions with the same signature.
@@ -1683,12 +1822,12 @@ class FlatExprVisitor : public cel::AstVisitor {
         auto args = program_builder_.current()->ExtractRecursiveDependencies();
         SetRecursiveStep(CreateDirectLazyFunctionStep(
                              expr->id(), *call_expr, std::move(args),
-                             std::move(lazy_overloads)),
+                             std::move(lazy_overloads), std::move(arg_types)),
                          *depth + 1);
         return;
       }
       AddStep(CreateFunctionStep(*call_expr, expr->id(),
-                                 std::move(lazy_overloads)));
+                                 std::move(lazy_overloads), std::move(arg_types)));
       return;
     }
 
@@ -1717,11 +1856,11 @@ class FlatExprVisitor : public cel::AstVisitor {
       auto args = program_builder_.current()->ExtractRecursiveDependencies();
       SetRecursiveStep(
           CreateDirectFunctionStep(expr->id(), *call_expr, std::move(args),
-                                   std::move(overloads)),
+                                   std::move(overloads), std::move(arg_types)),
           *recursion_depth + 1);
       return;
     }
-    AddStep(CreateFunctionStep(*call_expr, expr->id(), std::move(overloads)));
+    AddStep(CreateFunctionStep(*call_expr, expr->id(), std::move(overloads), std::move(arg_types)));
   }
 
   void AddStep(absl::StatusOr<std::unique_ptr<ExpressionStep>> step) {
@@ -1949,6 +2088,9 @@ class FlatExprVisitor : public cel::AstVisitor {
   const cel::Expr* resume_from_suppressed_branch_ = nullptr;
   std::vector<std::unique_ptr<ProgramOptimizer>> program_optimizers_;
   IssueCollector& issue_collector_;
+
+  absl::flat_hash_map<int64_t, cel::ast_internal::Type> type_map_;
+  bool is_checked_;
 
   ProgramBuilder& program_builder_;
   PlannerContext extension_context_;
@@ -2551,7 +2693,10 @@ absl::StatusOr<FlatExpression> FlatExprBuilder::CreateExpressionImpl(
   // These objects are expected to remain scoped to one build call -- references
   // to them shouldn't be persisted in any part of the result expression.
   FlatExprVisitor visitor(resolver, options_, std::move(optimizers),
-                          ast_impl.reference_map(), GetTypeProvider(),
+                          ast_impl.reference_map(),
+                          ast_impl.type_map(),
+                          ast_impl.IsChecked(),
+                          GetTypeProvider(),
                           issue_collector, program_builder, extension_context,
                           enable_optional_types_);
 

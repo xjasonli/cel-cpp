@@ -48,6 +48,15 @@ class Function {
       const google::protobuf::DescriptorPool* ABSL_NONNULL descriptor_pool,
       google::protobuf::MessageFactory* ABSL_NONNULL message_factory,
       google::protobuf::Arena* ABSL_NONNULL arena) const = 0;
+
+  virtual absl::StatusOr<Value> InvokeWithTypes(
+      absl::Span<const Value> args,
+      absl::Span<const Type> arg_types,
+      const google::protobuf::DescriptorPool* ABSL_NONNULL descriptor_pool,
+      google::protobuf::MessageFactory* ABSL_NONNULL message_factory,
+      google::protobuf::Arena* ABSL_NONNULL arena) const {
+    return Invoke(args, descriptor_pool, message_factory, arena);
+  }
 };
 
 }  // namespace cel
