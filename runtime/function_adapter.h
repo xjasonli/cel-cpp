@@ -745,7 +745,8 @@ class NaryFunctionAdapter
         absl::Span<const Value> args,
         const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
         google::protobuf::MessageFactory* absl_nonnull message_factory,
-        google::protobuf::Arena* absl_nonnull arena) const override {
+        google::protobuf::Arena* absl_nonnull arena,
+        absl::Span<const std::string> overload_id) const override {
       if (args.size() != sizeof...(Args)) {
         return absl::InvalidArgumentError(
             absl::StrCat("unexpected number of arguments for ", sizeof...(Args),
