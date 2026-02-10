@@ -52,6 +52,7 @@
 #include "base/type_provider.h"
 #include "common/allocator.h"
 #include "common/ast.h"
+#include "common/ast/metadata.h"
 #include "common/ast_traverse.h"
 #include "common/ast_visitor.h"
 #include "common/constant.h"
@@ -511,6 +512,7 @@ class FlatExprVisitor : public cel::AstVisitor {
       bool enable_optional_types)
       : resolver_(resolver),
         type_provider_(type_provider),
+        reference_map_(reference_map),
         progress_status_(absl::OkStatus()),
         resolved_select_expr_(nullptr),
         options_(options),
@@ -1691,28 +1693,109 @@ class FlatExprVisitor : public cel::AstVisitor {
     bool receiver_style = call_expr->has_target();
     size_t num_args = call_expr->args().size() + (receiver_style ? 1 : 0);
 
-    // First, search for lazily defined function overloads.
-    // Lazy functions shadow eager functions with the same signature.
+    // Try to extract overload IDs from reference_map
+    // Checked expressions will have overload_ids, parse-only won't
+    std::vector<std::string> overload_ids;
+    auto ref_it = reference_map_.find(expr->id());
+    if (ref_it != reference_map_.end()) {
+      overload_ids = ref_it->second.overload_id();
+    }
+
+    // Branch 1: Checked expression with overload IDs
+    // Direct lookup by overload ID - O(k) where k = number of overload_ids
+    if (!overload_ids.empty()) {
+      // Try lazy functions first (they shadow static functions)
+      std::vector<cel::FunctionRegistry::LazyOverload> lazy_overloads;
+      for (const auto& id : overload_ids) {
+        auto lazy = resolver_.FindLazyOverloadById(function, id);
+        if (lazy.has_value()) {
+          lazy_overloads.push_back(*lazy);
+        }
+      }
+      
+      if (!lazy_overloads.empty()) {
+        // Create lazy function step (checked = true)
+        auto depth = RecursionEligible();
+        if (depth.has_value()) {
+          auto args = program_builder_.current()->ExtractRecursiveDependencies();
+          SetRecursiveStep(CreateDirectLazyFunctionStep(
+                  expr->id(), *call_expr, std::move(args),
+                  std::move(lazy_overloads),
+                  true,
+                  options_.enable_type_level_overload),
+              *depth + 1);
+        } else {
+          AddStep(CreateFunctionStep(*call_expr, expr->id(),
+              std::move(lazy_overloads),
+              true,
+              options_.enable_type_level_overload));
+        }
+        return;
+      }
+
+      // Try static functions
+      std::vector<cel::FunctionOverloadReference> static_overloads;
+      for (const auto& id : overload_ids) {
+        auto static_func = resolver_.FindOverloadById(function, id);
+        if (static_func.has_value()) {
+          static_overloads.push_back(*static_func);
+        }
+      }
+
+      if (!static_overloads.empty()) {
+        // Create static function step (checked = true)
+        auto recursion_depth = RecursionEligible();
+        if (recursion_depth.has_value()) {
+          ABSL_DCHECK(program_builder_.current() != nullptr);
+          auto args = program_builder_.current()->ExtractRecursiveDependencies();
+          SetRecursiveStep(CreateDirectFunctionStep(
+                  expr->id(), *call_expr, std::move(args),
+                  std::move(static_overloads),
+                  true,
+                  options_.enable_type_level_overload),
+              *recursion_depth + 1);
+        } else {
+          AddStep(CreateFunctionStep(*call_expr, expr->id(),
+              std::move(static_overloads),
+              true,
+              options_.enable_type_level_overload));
+        }
+        return;
+      }
+
+      // Fallback: overload IDs provided but no functions found with those IDs.
+      // This can happen when functions are registered without overload_id (legacy).
+      // Fall through to arity-based matching as a compatibility layer.
+    }
+
+    // Branch 2: Parse-only expression - use arity-based matching
+    
+    // Try lazy functions first
     auto lazy_overloads = resolver_.FindLazyOverloads(
-        function, call_expr->has_target(), num_args, expr->id());
+        function, receiver_style, num_args, expr->id());
     if (!lazy_overloads.empty()) {
       auto depth = RecursionEligible();
       if (depth.has_value()) {
         auto args = program_builder_.current()->ExtractRecursiveDependencies();
-        SetRecursiveStep(CreateDirectLazyFunctionStep(
-                             expr->id(), *call_expr, std::move(args),
-                             std::move(lazy_overloads)),
-                         *depth + 1);
-        return;
+        SetRecursiveStep(
+            CreateDirectLazyFunctionStep(
+                expr->id(), *call_expr, std::move(args),
+                std::move(lazy_overloads),
+                false,
+                options_.enable_type_level_overload),
+            *depth + 1);
+      } else {
+        AddStep(CreateFunctionStep(*call_expr, expr->id(),
+            std::move(lazy_overloads),
+            false,
+            options_.enable_type_level_overload));
       }
-      AddStep(CreateFunctionStep(*call_expr, expr->id(),
-                                 std::move(lazy_overloads)));
       return;
     }
 
-    // Second, search for eagerly defined function overloads.
-    auto overloads =
-        resolver_.FindOverloads(function, receiver_style, num_args, expr->id());
+    // Try static functions
+    auto overloads = resolver_.FindOverloads(
+        function, receiver_style, num_args, expr->id());
     if (overloads.empty()) {
       // Create a warning that the overload could not be found. Depending on the
       // builder_warnings configuration, this could result in termination of the
@@ -1735,11 +1818,16 @@ class FlatExprVisitor : public cel::AstVisitor {
       auto args = program_builder_.current()->ExtractRecursiveDependencies();
       SetRecursiveStep(
           CreateDirectFunctionStep(expr->id(), *call_expr, std::move(args),
-                                   std::move(overloads)),
+              std::move(overloads),
+              false,
+              options_.enable_type_level_overload),
           *recursion_depth + 1);
       return;
     }
-    AddStep(CreateFunctionStep(*call_expr, expr->id(), std::move(overloads)));
+    AddStep(CreateFunctionStep(*call_expr, expr->id(),
+        std::move(overloads),
+        false,
+        options_.enable_type_level_overload));
   }
 
   // Add a step to the program, taking ownership. If successful, returns the
@@ -1958,6 +2046,7 @@ class FlatExprVisitor : public cel::AstVisitor {
 
   const Resolver& resolver_;
   const cel::TypeProvider& type_provider_;
+  const absl::flat_hash_map<int64_t, cel::Reference>& reference_map_;
   absl::Status progress_status_;
   absl::flat_hash_map<std::string, CallHandler> call_handlers_;
 

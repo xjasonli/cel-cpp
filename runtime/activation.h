@@ -75,6 +75,9 @@ class Activation final : public ActivationInterface {
   std::vector<FunctionOverloadReference> FindFunctionOverloads(
       absl::string_view name) const override;
 
+  absl::optional<FunctionOverloadReference> FindFunctionOverloadById(
+      absl::string_view name, absl::string_view overload_id) const override;
+
   absl::Span<const cel::AttributePattern> GetUnknownAttributes()
       const override {
     return unknown_patterns_;
@@ -126,9 +129,15 @@ class Activation final : public ActivationInterface {
     absl::optional<ValueProvider> provider;
   };
 
-  struct FunctionEntry {
+  struct OverloadEntry {
     std::unique_ptr<cel::FunctionDescriptor> descriptor;
     std::unique_ptr<cel::Function> implementation;
+  };
+
+  struct FunctionEntry {
+    std::vector<OverloadEntry> overloads;
+    // O(1) lookup by overload ID within this function name.
+    absl::flat_hash_map<std::string, OverloadEntry*> overloads_by_id;
   };
 
   friend class runtime_internal::ActivationAttributeMatcherAccess;
@@ -176,7 +185,7 @@ class Activation final : public ActivationInterface {
   std::unique_ptr<const runtime_internal::AttributeMatcher>
       owned_attribute_matcher_;
 
-  absl::flat_hash_map<std::string, std::vector<FunctionEntry>> functions_;
+  absl::flat_hash_map<std::string, FunctionEntry> functions_;
 };
 
 }  // namespace cel
