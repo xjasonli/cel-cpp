@@ -25,9 +25,11 @@
 #include "absl/status/status.h"
 #include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
+#include "absl/strings/string_view.h"
 #include "absl/types/span.h"
 #include "common/function_descriptor.h"
 #include "common/kind.h"
+#include "common/type.h"
 #include "common/value.h"
 #include "common/value_testing.h"
 #include "extensions/protobuf/runtime_adapter.h"
@@ -64,33 +66,33 @@ using ::testing::TestWithParam;
 MATCHER_P(MatchesOptionalReceiver1, name, "") {
   const FunctionDescriptor& descriptor = arg.descriptor;
 
-  std::vector<Kind> types{Kind::kOpaque};
+  std::vector<Kind> kinds{Kind::kOpaque};
   return descriptor.name() == name && descriptor.receiver_style() == true &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 MATCHER_P2(MatchesOptionalReceiver2, name, kind, "") {
   const FunctionDescriptor& descriptor = arg.descriptor;
 
-  std::vector<Kind> types{Kind::kOpaque, kind};
+  std::vector<Kind> kinds{Kind::kOpaque, kind};
   return descriptor.name() == name && descriptor.receiver_style() == true &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 MATCHER_P2(MatchesOptionalSelect, kind1, kind2, "") {
   const FunctionDescriptor& descriptor = arg.descriptor;
 
-  std::vector<Kind> types{kind1, kind2};
+  std::vector<Kind> kinds{kind1, kind2};
   return descriptor.name() == "_?._" && descriptor.receiver_style() == false &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 MATCHER_P2(MatchesOptionalIndex, kind1, kind2, "") {
   const FunctionDescriptor& descriptor = arg.descriptor;
 
-  std::vector<Kind> types{kind1, kind2};
+  std::vector<Kind> kinds{kind1, kind2};
   return descriptor.name() == "_[?_]" && descriptor.receiver_style() == false &&
-         descriptor.types() == types;
+         descriptor.kinds() == kinds;
 }
 
 TEST(EnableOptionalTypes, HeterogeneousEqualityRequired) {
@@ -417,6 +419,76 @@ TEST(OptionalTypesTest, CreateStruct_KeyTypeConversionError) {
   EXPECT_THAT(result.GetError().ToStatus(),
               StatusIs(absl::StatusCode::kInvalidArgument,
                        HasSubstr("type conversion error")));
+}
+
+TEST(OptionalTypesTest, GenericOptionalBindingUsesContainedTypes) {
+  class SameTypeFunction final : public Function {
+   public:
+    absl::StatusOr<Value> Invoke(absl::Span<const Value>,
+                                 const InvokeContext&) const override {
+      return BoolValue(true);
+    }
+  };
+  RuntimeOptions options;
+  options.enable_qualified_type_identifiers = true;
+  options.enable_type_level_overload = true;
+  ASSERT_OK_AND_ASSIGN(auto builder,
+                       CreateStandardRuntimeBuilder(
+                           internal::GetTestingDescriptorPool(), options));
+  ASSERT_OK(EnableOptionalTypes(builder));
+  ASSERT_OK(
+      EnableReferenceResolver(builder, ReferenceResolverEnabled::kAlways));
+  ASSERT_OK(builder.function_registry().Register(
+      FunctionDescriptor(
+          "sameType", "same_A_A_A", false,
+          {TypeParamType("A"), TypeParamType("A"), TypeParamType("A")}),
+      std::make_unique<SameTypeFunction>()));
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
+  for (const auto& [expression, matches] :
+       std::vector<std::pair<absl::string_view, bool>>{
+           {"sameType(optional.none(), optional.of([1]), optional.of(['s']))",
+            false},
+           {"sameType(optional.none(), optional.of([1]), optional.of([2]))",
+            true},
+           {"sameType(optional.of(1), optional.of(2), optional.none())",
+            true}}) {
+    SCOPED_TRACE(expression);
+    ASSERT_OK_AND_ASSIGN(ParsedExpr expr,
+                         Parse(expression, "<input>",
+                               ParserOptions{.enable_optional_syntax = true}));
+    ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
+                         ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+    google::protobuf::Arena arena;
+    Activation activation;
+    ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+    if (matches) {
+      EXPECT_THAT(result, BoolValueIs(true));
+    } else {
+      EXPECT_TRUE(result.IsError()) << result.DebugString();
+    }
+  }
+}
+
+TEST(OptionalTypesTest, TypeLevelOpaqueDoesNotAbort) {
+  RuntimeOptions opts;
+  opts.enable_qualified_type_identifiers = true;
+  opts.enable_type_level_overload = true;
+  ASSERT_OK_AND_ASSIGN(
+      auto builder,
+      CreateStandardRuntimeBuilder(internal::GetTestingDescriptorPool(), opts));
+  ASSERT_OK(EnableOptionalTypes(builder));
+  ASSERT_OK(
+      EnableReferenceResolver(builder, ReferenceResolverEnabled::kAlways));
+  ASSERT_OK_AND_ASSIGN(auto runtime, std::move(builder).Build());
+  ASSERT_OK_AND_ASSIGN(ParsedExpr expr,
+                       Parse("optional.none().hasValue()", "<input>",
+                             ParserOptions{.enable_optional_syntax = true}));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<Program> program,
+                       ProtobufRuntimeAdapter::CreateProgram(*runtime, expr));
+  google::protobuf::Arena arena;
+  Activation activation;
+  ASSERT_OK_AND_ASSIGN(Value result, program->Evaluate(&arena, activation));
+  EXPECT_THAT(result, BoolValueIs(false));
 }
 
 }  // namespace
