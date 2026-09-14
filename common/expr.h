@@ -1378,7 +1378,7 @@ inline Expr& Expr::operator=(Expr&&) = default;
 
 inline void Expr::set_kind(ExprKind kind) { kind_ = std::move(kind); }
 
-inline ABSL_MUST_USE_RESULT ExprKind Expr::release_kind() {
+[[nodiscard]] inline ExprKind Expr::release_kind() {
   ExprKind kind = std::move(kind_);
   kind_.emplace<UnspecifiedExpr>();
   return kind;
@@ -1388,7 +1388,7 @@ inline void Expr::set_call_expr(CallExpr call_expr) {
   try_emplace_kind<CallExpr>() = std::move(call_expr);
 }
 
-inline ABSL_MUST_USE_RESULT CallExpr Expr::release_call_expr() {
+[[nodiscard]] inline CallExpr Expr::release_call_expr() {
   return release_kind<CallExpr>();
 }
 
@@ -1499,12 +1499,12 @@ inline void ListExprElement::Clear() {
   optional_ = false;
 }
 
-inline ABSL_MUST_USE_RESULT const Expr& ListExprElement::expr() const
+[[nodiscard]] inline const Expr& ListExprElement::expr() const
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
   return has_expr() ? *expr_ : Expr::default_instance();
 }
 
-inline ABSL_MUST_USE_RESULT Expr& ListExprElement::mutable_expr()
+[[nodiscard]] inline Expr& ListExprElement::mutable_expr()
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
   if (!has_expr()) {
     expr_ = std::make_unique<Expr>();
@@ -1520,7 +1520,7 @@ inline void ListExprElement::set_expr(std::unique_ptr<Expr> expr) {
   expr_ = std::move(expr);
 }
 
-inline ABSL_MUST_USE_RESULT Expr ListExprElement::release_expr() {
+[[nodiscard]] inline Expr ListExprElement::release_expr() {
   return release(expr_);
 }
 
@@ -1570,12 +1570,12 @@ inline void StructExprField::Clear() {
   optional_ = false;
 }
 
-inline ABSL_MUST_USE_RESULT const Expr& StructExprField::value() const
+[[nodiscard]] inline const Expr& StructExprField::value() const
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
   return has_value() ? *value_ : Expr::default_instance();
 }
 
-inline ABSL_MUST_USE_RESULT Expr& StructExprField::mutable_value()
+[[nodiscard]] inline Expr& StructExprField::mutable_value()
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
   if (!has_value()) {
     value_ = std::make_unique<Expr>();
@@ -1591,7 +1591,7 @@ inline void StructExprField::set_value(std::unique_ptr<Expr> value) {
   value_ = std::move(value);
 }
 
-inline ABSL_MUST_USE_RESULT Expr StructExprField::release_value() {
+[[nodiscard]] inline Expr StructExprField::release_value() {
   return release(value_);
 }
 
@@ -1646,12 +1646,12 @@ inline void MapExprEntry::Clear() {
   optional_ = false;
 }
 
-inline ABSL_MUST_USE_RESULT const Expr& MapExprEntry::key() const
+[[nodiscard]] inline const Expr& MapExprEntry::key() const
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
   return has_key() ? *key_ : Expr::default_instance();
 }
 
-inline ABSL_MUST_USE_RESULT Expr& MapExprEntry::mutable_key()
+[[nodiscard]] inline Expr& MapExprEntry::mutable_key()
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
   if (!has_key()) {
     key_ = std::make_unique<Expr>();
@@ -1665,16 +1665,14 @@ inline void MapExprEntry::set_key(std::unique_ptr<Expr> key) {
   key_ = std::move(key);
 }
 
-inline ABSL_MUST_USE_RESULT Expr MapExprEntry::release_key() {
-  return release(key_);
-}
+[[nodiscard]] inline Expr MapExprEntry::release_key() { return release(key_); }
 
-inline ABSL_MUST_USE_RESULT const Expr& MapExprEntry::value() const
+[[nodiscard]] inline const Expr& MapExprEntry::value() const
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
   return has_value() ? *value_ : Expr::default_instance();
 }
 
-inline ABSL_MUST_USE_RESULT Expr& MapExprEntry::mutable_value()
+[[nodiscard]] inline Expr& MapExprEntry::mutable_value()
     ABSL_ATTRIBUTE_LIFETIME_BOUND {
   if (!has_value()) {
     value_ = std::make_unique<Expr>();
@@ -1690,7 +1688,7 @@ inline void MapExprEntry::set_value(std::unique_ptr<Expr> value) {
   value_ = std::move(value);
 }
 
-inline ABSL_MUST_USE_RESULT Expr MapExprEntry::release_value() {
+[[nodiscard]] inline Expr MapExprEntry::release_value() {
   return release(value_);
 }
 
