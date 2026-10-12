@@ -17,8 +17,10 @@
 #include <string>
 #include <utility>
 
+#include "google/protobuf/struct.pb.h"
 #include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
+#include "absl/base/optimization.h"
 #include "absl/functional/overload.h"
 #include "absl/status/status.h"
 #include "absl/strings/cord.h"
@@ -29,6 +31,7 @@
 #include "internal/well_known_types.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/message.h"
+#include "google/protobuf/message_lite.h"
 
 namespace cel::common_internal {
 
@@ -36,6 +39,7 @@ namespace {
 
 using ::cel::well_known_types::AsVariant;
 using ::cel::well_known_types::GetValueReflectionOrDie;
+using ::cel::well_known_types::ValueReflection;
 
 google::protobuf::Arena* absl_nonnull MessageArenaOr(
     const google::protobuf::Message* absl_nonnull message,
@@ -51,6 +55,45 @@ google::protobuf::Arena* absl_nonnull MessageArenaOr(
 
 Value ParsedJsonValue(const google::protobuf::Message* absl_nonnull message,
                       google::protobuf::Arena* absl_nonnull arena) {
+  if (const auto* generated_message =
+          google::protobuf::DynamicCastMessage<google::protobuf::Value>(message);
+      ABSL_PREDICT_TRUE(generated_message != nullptr)) {
+    const auto kind_case = ValueReflection::GetKindCase(*generated_message);
+    switch (kind_case) {
+      case google::protobuf::Value::KIND_NOT_SET:
+        ABSL_FALLTHROUGH_INTENDED;
+      case google::protobuf::Value::kNullValue:
+        return NullValue();
+      case google::protobuf::Value::kBoolValue:
+        return BoolValue(ValueReflection::GetBoolValue(*generated_message));
+      case google::protobuf::Value::kNumberValue:
+        return DoubleValue(ValueReflection::GetNumberValue(*generated_message));
+      case google::protobuf::Value::kStringValue: {
+        absl::string_view string =
+            ValueReflection::GetStringValue(*generated_message);
+        if (string.empty()) {
+          return StringValue();
+        }
+        if (google::protobuf::Arena* message_arena = generated_message->GetArena();
+            message_arena != nullptr) {
+          return StringValue::Wrap(string, message_arena);
+        }
+        return StringValue::From(string, arena);
+      }
+      case google::protobuf::Value::kListValue:
+        return ParsedJsonListValue(
+            &ValueReflection::GetListValue(*generated_message),
+            MessageArenaOr(generated_message, arena));
+      case google::protobuf::Value::kStructValue:
+        return ParsedJsonMapValue(
+            &ValueReflection::GetStructValue(*generated_message),
+            MessageArenaOr(generated_message, arena));
+      default:
+        return ErrorValue::From(absl::InvalidArgumentError(absl::StrCat(
+                                    "unexpected value kind case: ", kind_case)),
+                                arena);
+    }
+  }
   const auto reflection = GetValueReflectionOrDie(message->GetDescriptor());
   const auto kind_case = reflection.GetKindCase(*message);
   switch (kind_case) {

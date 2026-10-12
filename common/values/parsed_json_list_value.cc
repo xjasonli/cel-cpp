@@ -41,6 +41,7 @@
 #include "google/protobuf/descriptor.h"
 #include "google/protobuf/io/zero_copy_stream.h"
 #include "google/protobuf/message.h"
+#include "google/protobuf/message_lite.h"
 
 namespace cel {
 
@@ -204,6 +205,12 @@ size_t ParsedJsonListValue::Size() const {
   if (value_ == nullptr) {
     return 0;
   }
+  if (const auto* generated_message =
+          google::protobuf::DynamicCastMessage<google::protobuf::ListValue>(value_);
+      ABSL_PREDICT_TRUE(generated_message != nullptr)) {
+    return static_cast<size_t>(
+        well_known_types::ListValueReflection::ValuesSize(*generated_message));
+  }
   return static_cast<size_t>(
       well_known_types::GetListValueReflectionOrDie(value_->GetDescriptor())
           .ValuesSize(*value_));
@@ -221,6 +228,21 @@ absl::Status ParsedJsonListValue::Get(
 
   if (value_ == nullptr) {
     *result = IndexOutOfBoundsError(index, arena);
+    return absl::OkStatus();
+  }
+  if (const auto* generated_message =
+          google::protobuf::DynamicCastMessage<google::protobuf::ListValue>(value_);
+      ABSL_PREDICT_TRUE(generated_message != nullptr)) {
+    const int size =
+        well_known_types::ListValueReflection::ValuesSize(*generated_message);
+    if (ABSL_PREDICT_FALSE(index >= static_cast<size_t>(size))) {
+      *result = IndexOutOfBoundsError(index, arena);
+      return absl::OkStatus();
+    }
+    *result = common_internal::ParsedJsonValue(
+        &well_known_types::ListValueReflection::Values(*generated_message,
+                                                       static_cast<int>(index)),
+        arena);
     return absl::OkStatus();
   }
   const auto reflection =
@@ -248,6 +270,22 @@ absl::Status ParsedJsonListValue::ForEach(
     return absl::OkStatus();
   }
   Value scratch;
+  if (const auto* generated_message =
+          google::protobuf::DynamicCastMessage<google::protobuf::ListValue>(value_);
+      ABSL_PREDICT_TRUE(generated_message != nullptr)) {
+    const int size =
+        well_known_types::ListValueReflection::ValuesSize(*generated_message);
+    for (int i = 0; i < size; ++i) {
+      scratch = common_internal::ParsedJsonValue(
+          &well_known_types::ListValueReflection::Values(*generated_message, i),
+          arena);
+      CEL_ASSIGN_OR_RETURN(auto ok, callback(static_cast<size_t>(i), scratch));
+      if (!ok) {
+        break;
+      }
+    }
+    return absl::OkStatus();
+  }
   const auto reflection =
       well_known_types::GetListValueReflectionOrDie(value_->GetDescriptor());
   const int size = reflection.ValuesSize(*value_);
@@ -269,9 +307,16 @@ class ParsedJsonListValueIterator final : public ValueIterator {
   explicit ParsedJsonListValueIterator(
       const google::protobuf::Message* absl_nonnull message)
       : message_(message),
-        reflection_(well_known_types::GetListValueReflectionOrDie(
-            message_->GetDescriptor())),
-        size_(reflection_.ValuesSize(*message_)) {}
+        generated_(
+            google::protobuf::DynamicCastMessage<google::protobuf::ListValue>(message_)) {
+    if (ABSL_PREDICT_TRUE(generated_ != nullptr)) {
+      size_ = well_known_types::ListValueReflection::ValuesSize(*generated_);
+    } else {
+      reflection_ = well_known_types::GetListValueReflectionOrDie(
+          message_->GetDescriptor());
+      size_ = reflection_.ValuesSize(*message_);
+    }
+  }
 
   bool HasNext() override { return index_ < size_; }
 
@@ -289,8 +334,14 @@ class ParsedJsonListValueIterator final : public ValueIterator {
           "`ValueIterator::Next` called after `ValueIterator::HasNext` "
           "returned false");
     }
-    *result = common_internal::ParsedJsonValue(
-        &reflection_.Values(*message_, index_), arena);
+    if (ABSL_PREDICT_TRUE(generated_ != nullptr)) {
+      *result = common_internal::ParsedJsonValue(
+          &well_known_types::ListValueReflection::Values(*generated_, index_),
+          arena);
+    } else {
+      *result = common_internal::ParsedJsonValue(
+          &reflection_.Values(*message_, index_), arena);
+    }
     ++index_;
     return absl::OkStatus();
   }
@@ -308,8 +359,14 @@ class ParsedJsonListValueIterator final : public ValueIterator {
     if (index_ >= size_) {
       return false;
     }
-    *key_or_value = common_internal::ParsedJsonValue(
-        &reflection_.Values(*message_, index_), arena);
+    if (ABSL_PREDICT_TRUE(generated_ != nullptr)) {
+      *key_or_value = common_internal::ParsedJsonValue(
+          &well_known_types::ListValueReflection::Values(*generated_, index_),
+          arena);
+    } else {
+      *key_or_value = common_internal::ParsedJsonValue(
+          &reflection_.Values(*message_, index_), arena);
+    }
     ++index_;
     return true;
   }
@@ -328,8 +385,14 @@ class ParsedJsonListValueIterator final : public ValueIterator {
       return false;
     }
     if (value != nullptr) {
-      *value = common_internal::ParsedJsonValue(
-          &reflection_.Values(*message_, index_), arena);
+      if (ABSL_PREDICT_TRUE(generated_ != nullptr)) {
+        *value = common_internal::ParsedJsonValue(
+            &well_known_types::ListValueReflection::Values(*generated_, index_),
+            arena);
+      } else {
+        *value = common_internal::ParsedJsonValue(
+            &reflection_.Values(*message_, index_), arena);
+      }
     }
     *key = IntValue(index_);
     ++index_;
@@ -338,8 +401,9 @@ class ParsedJsonListValueIterator final : public ValueIterator {
 
  private:
   const google::protobuf::Message* absl_nonnull const message_;
-  const well_known_types::ListValueReflection reflection_;
-  const int size_;
+  const google::protobuf::ListValue* absl_nullable const generated_;
+  well_known_types::ListValueReflection reflection_;
+  int size_;
   int index_ = 0;
 };
 

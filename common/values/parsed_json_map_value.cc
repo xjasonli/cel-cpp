@@ -203,6 +203,12 @@ size_t ParsedJsonMapValue::Size() const {
   if (value_ == nullptr) {
     return 0;
   }
+  if (const auto* generated_message =
+          google::protobuf::DynamicCastMessage<google::protobuf::Struct>(value_);
+      ABSL_PREDICT_TRUE(generated_message != nullptr)) {
+    return static_cast<size_t>(
+        well_known_types::StructReflection::FieldsSize(*generated_message));
+  }
   return static_cast<size_t>(
       well_known_types::GetStructReflectionOrDie(value_->GetDescriptor())
           .FieldsSize(*value_));
@@ -237,6 +243,18 @@ absl::StatusOr<bool> ParsedJsonMapValue::Find(
         return false;
       }
       std::string key_scratch;
+      if (const auto* generated_message =
+              google::protobuf::DynamicCastMessage<google::protobuf::Struct>(value_);
+          ABSL_PREDICT_TRUE(generated_message != nullptr)) {
+        if (const auto* value = well_known_types::StructReflection::FindField(
+                *generated_message, string_key->ToStringView(&key_scratch));
+            value != nullptr) {
+          *result = common_internal::ParsedJsonValue(value, arena);
+          return true;
+        }
+        *result = NullValue();
+        return false;
+      }
       if (const auto* value =
               well_known_types::GetStructReflectionOrDie(
                   value_->GetDescriptor())
@@ -269,6 +287,13 @@ absl::Status ParsedJsonMapValue::Has(
         return absl::OkStatus();
       }
       std::string key_scratch;
+      if (const auto* generated_message =
+              google::protobuf::DynamicCastMessage<google::protobuf::Struct>(value_);
+          ABSL_PREDICT_TRUE(generated_message != nullptr)) {
+        *result = BoolValue(well_known_types::StructReflection::ContainsField(
+            *generated_message, string_key->ToStringView(&key_scratch)));
+        return absl::OkStatus();
+      }
       if (const auto* value =
               well_known_types::GetStructReflectionOrDie(
                   value_->GetDescriptor())
