@@ -78,7 +78,7 @@ absl::Status CreateListStep::DoEvaluate(ExecutionFrame* frame,
     absl::optional<UnknownValue> unknown_set =
         frame->attribute_utility().IdentifyAndMergeUnknowns(
             args, frame->value_stack().GetAttributeSpan(list_size_),
-            /*use_partial=*/true);
+            /*use_partial=*/true, frame->arena());
     if (unknown_set.has_value()) {
       *result = std::move(*unknown_set);
       return absl::OkStatus();

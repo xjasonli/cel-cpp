@@ -104,7 +104,7 @@ bool AttributeUtility::CheckForUnknown(const AttributeTrail& trail,
 // it together with initial_set (if initial_set is not null).
 // Returns pointer to merged set or nullptr, if there were no sets to merge.
 absl::optional<UnknownValue> AttributeUtility::MergeUnknowns(
-    absl::Span<const cel::Value> args) const {
+    absl::Span<const cel::Value> args, google::protobuf::Arena* arena) const {
   // Empty unknown value may be used as a sentinel in some tests so need to
   // distinguish unset (nullopt) and empty(engaged empty value).
   absl::optional<UnknownSet> result_set;
@@ -129,11 +129,13 @@ absl::optional<UnknownValue> AttributeUtility::MergeUnknowns(
 
   return cel::common_internal::MakeUnknownValue(
       cel::Unknown(result_set->unknown_attributes(),
-                   result_set->unknown_function_results()));
+                   result_set->unknown_function_results()),
+      arena);
 }
 
-UnknownValue AttributeUtility::MergeUnknownValues(
-    const UnknownValue& left, const UnknownValue& right) const {
+UnknownValue AttributeUtility::MergeUnknownValues(const UnknownValue& left,
+                                                  const UnknownValue& right,
+                                                  google::protobuf::Arena* arena) const {
   // Empty unknown value may be used as a sentinel in some tests so need to
   // distinguish unset (nullopt) and empty(engaged empty value).
   AttributeSet attributes;
@@ -145,7 +147,7 @@ UnknownValue AttributeUtility::MergeUnknownValues(
       cel::common_internal::GetUnknownFunctionResultSet(right));
 
   return cel::common_internal::MakeUnknownValue(
-      cel::Unknown(std::move(attributes), std::move(function_results)));
+      cel::Unknown(std::move(attributes), std::move(function_results)), arena);
 }
 
 // Creates merged UnknownAttributeSet.
@@ -174,7 +176,7 @@ AttributeSet AttributeUtility::CheckForUnknowns(
 // Returns pointer to merged set or nullptr, if there were no sets to merge.
 absl::optional<UnknownValue> AttributeUtility::IdentifyAndMergeUnknowns(
     absl::Span<const cel::Value> args, absl::Span<const AttributeTrail> attrs,
-    bool use_partial) const {
+    bool use_partial, google::protobuf::Arena* arena) const {
   absl::optional<UnknownSet> result_set;
 
   // Identify new unknowns by attribute patterns.
@@ -184,7 +186,7 @@ absl::optional<UnknownValue> AttributeUtility::IdentifyAndMergeUnknowns(
   }
 
   // merge down existing unknown sets
-  absl::optional<UnknownValue> arg_unknowns = MergeUnknowns(args);
+  absl::optional<UnknownValue> arg_unknowns = MergeUnknowns(args, arena);
 
   if (!result_set.has_value()) {
     // No new unknowns so no need to check for presence of existing unknowns --
@@ -199,12 +201,14 @@ absl::optional<UnknownValue> AttributeUtility::IdentifyAndMergeUnknowns(
 
   return cel::common_internal::MakeUnknownValue(
       cel::Unknown(result_set->unknown_attributes(),
-                   result_set->unknown_function_results()));
+                   result_set->unknown_function_results()),
+      arena);
 }
 
-UnknownValue AttributeUtility::CreateUnknownSet(cel::Attribute attr) const {
+UnknownValue AttributeUtility::CreateUnknownSet(cel::Attribute attr,
+                                                google::protobuf::Arena* arena) const {
   return cel::common_internal::MakeUnknownValue(
-      cel::Unknown(AttributeSet({std::move(attr)})));
+      cel::Unknown(AttributeSet({std::move(attr)})), arena);
 }
 
 absl::StatusOr<ErrorValue> AttributeUtility::CreateMissingAttributeError(
@@ -216,9 +220,10 @@ absl::StatusOr<ErrorValue> AttributeUtility::CreateMissingAttributeError(
 
 UnknownValue AttributeUtility::CreateUnknownSet(
     const cel::FunctionDescriptor& fn_descriptor, int64_t expr_id,
-    absl::Span<const cel::Value> args) const {
+    absl::Span<const cel::Value> args, google::protobuf::Arena* arena) const {
   return cel::common_internal::MakeUnknownValue(
-      cel::Unknown(FunctionResultSet(FunctionResult(fn_descriptor.name()))));
+      cel::Unknown(FunctionResultSet(FunctionResult(fn_descriptor.name()))),
+      arena);
 }
 
 void AttributeUtility::Add(Accumulator& a, const cel::UnknownValue& v) const {
@@ -257,9 +262,10 @@ bool Accumulator::IsEmpty() const {
          function_result_set_.empty();
 }
 
-cel::UnknownValue Accumulator::Build() && {
+cel::UnknownValue Accumulator::Build(google::protobuf::Arena* arena) && {
   return cel::common_internal::MakeUnknownValue(
-      cel::Unknown(std::move(attribute_set_), std::move(function_result_set_)));
+      cel::Unknown(std::move(attribute_set_), std::move(function_result_set_)),
+      arena);
 }
 
 }  // namespace google::api::expr::runtime

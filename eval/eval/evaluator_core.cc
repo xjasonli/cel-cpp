@@ -139,7 +139,7 @@ void ExpressionStep::EvaluateMutableListAppendStep(ExecutionFrame& frame) {
     std::optional<cel::UnknownValue> unknown_set =
         frame.attribute_utility().IdentifyAndMergeUnknowns(
             args, frame.value_stack().GetAttributeSpan(2),
-            /*use_partial=*/true);
+            /*use_partial=*/true, frame.arena());
     if (unknown_set.has_value()) {
       frame.value_stack().PopAndPush(2, std::move(*unknown_set));
       return;

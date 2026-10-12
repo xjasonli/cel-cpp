@@ -105,6 +105,7 @@ TEST_F(InstrumentationTest, Basic) {
   ASSERT_OK_AND_ASSIGN(auto value, plan.EvaluateWithCallback(
                                        activation, /*embedder_context=*/nullptr,
                                        EvaluationListener(), state));
+  static_cast<void>(value);
 
   // AST for the test expression:
   //              + <4>
@@ -150,6 +151,7 @@ TEST_F(InstrumentationTest, BasicWithConstFolding) {
   ASSERT_OK_AND_ASSIGN(auto value, plan.EvaluateWithCallback(
                                        activation, /*embedder_context=*/nullptr,
                                        EvaluationListener(), state));
+  static_cast<void>(value);
 
   // AST for the test expression:
   //              + <4>

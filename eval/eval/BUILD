@@ -819,6 +819,7 @@ cc_test(
         "//eval/public:unknown_set",
         "//internal:testing",
         "//runtime/internal:attribute_matcher",
+        "@com_google_absl//absl/types:optional",
         "@com_google_absl//absl/types:span",
         "@com_google_protobuf//:protobuf",
     ],

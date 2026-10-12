@@ -12,10 +12,12 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "absl/base/no_destructor.h"
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
+#include "base/function_result_set.h"
 #include "common/value.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/descriptor.h"
@@ -62,5 +64,14 @@ absl::Status UnknownValue::Equal(
   *result = FalseValue();
   return absl::OkStatus();
 }
+
+namespace common_internal {
+
+const FunctionResultSet& GetEmptyFunctionResults() {
+  static const absl::NoDestructor<FunctionResultSet> instance;
+  return *instance;
+}
+
+}  // namespace common_internal
 
 }  // namespace cel

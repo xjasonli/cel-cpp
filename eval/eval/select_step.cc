@@ -55,7 +55,8 @@ absl::optional<Value> CheckForMarkedAttributes(const AttributeTrail& trail,
                                                ExecutionFrameBase& frame) {
   if (frame.unknown_processing_enabled() &&
       frame.attribute_utility().CheckForUnknownExact(trail)) {
-    return frame.attribute_utility().CreateUnknownSet(trail.attribute());
+    return frame.attribute_utility().CreateUnknownSet(trail.attribute(),
+                                                      frame.arena());
   }
 
   if (frame.missing_attribute_errors_enabled() &&

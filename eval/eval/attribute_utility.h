@@ -71,7 +71,7 @@ class AttributeUtility {
 
     bool IsEmpty() const;
 
-    cel::UnknownValue Build() &&;
+    cel::UnknownValue Build(google::protobuf::Arena* arena) &&;
 
    private:
     explicit Accumulator(const AttributeUtility& parent)
@@ -131,11 +131,12 @@ class AttributeUtility {
   // Scans over the args collection, merges any UnknownValues found.
   // Returns the merged UnknownValue or nullopt if not found.
   absl::optional<cel::UnknownValue> MergeUnknowns(
-      absl::Span<const cel::Value> args) const;
+      absl::Span<const cel::Value> args, google::protobuf::Arena* arena) const;
 
   // Creates a merged UnknownValue from two unknown values.
   cel::UnknownValue MergeUnknownValues(const cel::UnknownValue& left,
-                                       const cel::UnknownValue& right) const;
+                                       const cel::UnknownValue& right,
+                                       google::protobuf::Arena* arena) const;
 
   // Creates merged UnknownValue.
   // Merges together UnknownValues found in the args
@@ -143,10 +144,11 @@ class AttributeUtility {
   // Returns returns the merged UnknownValue if available or nullopt.
   absl::optional<cel::UnknownValue> IdentifyAndMergeUnknowns(
       absl::Span<const cel::Value> args, absl::Span<const AttributeTrail> attrs,
-      bool use_partial) const;
+      bool use_partial, google::protobuf::Arena* arena) const;
 
   // Create an initial UnknownSet from a single attribute.
-  cel::UnknownValue CreateUnknownSet(cel::Attribute attr) const;
+  cel::UnknownValue CreateUnknownSet(cel::Attribute attr,
+                                     google::protobuf::Arena* arena) const;
 
   // Factory function for missing attribute errors.
   absl::StatusOr<cel::ErrorValue> CreateMissingAttributeError(
@@ -155,7 +157,7 @@ class AttributeUtility {
   // Create an initial UnknownSet from a single missing function call.
   cel::UnknownValue CreateUnknownSet(
       const cel::FunctionDescriptor& fn_descriptor, int64_t expr_id,
-      absl::Span<const cel::Value> args) const;
+      absl::Span<const cel::Value> args, google::protobuf::Arena* arena) const;
 
   Accumulator CreateAccumulator() const ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return Accumulator(*this);

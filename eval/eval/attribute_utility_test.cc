@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "base/attribute.h"
 #include "base/attribute_set.h"
@@ -86,9 +87,9 @@ TEST_F(AttributeUtilityTest, UnknownsUtilityMergeUnknownsFromValues) {
   AttributeUtility utility(unknown_patterns, missing_attribute_patterns);
 
   UnknownValue unknown_set0 = cel::common_internal::MakeUnknownValue(
-      cel::Unknown(AttributeSet({attribute0})));
+      cel::Unknown(AttributeSet({attribute0})), &arena_);
   UnknownValue unknown_set1 = cel::common_internal::MakeUnknownValue(
-      cel::Unknown(AttributeSet({attribute1})));
+      cel::Unknown(AttributeSet({attribute1})), &arena_);
 
   std::vector<cel::Value> values = {
       unknown_set0,
@@ -97,7 +98,8 @@ TEST_F(AttributeUtilityTest, UnknownsUtilityMergeUnknownsFromValues) {
       cel::IntValue(1),
   };
 
-  absl::optional<UnknownValue> unknown_set = utility.MergeUnknowns(values);
+  absl::optional<UnknownValue> unknown_set =
+      utility.MergeUnknowns(values, &arena_);
   ASSERT_TRUE(unknown_set.has_value());
   EXPECT_THAT((*unknown_set).ToAttributeSet(),
               UnorderedPointwise(
@@ -161,7 +163,7 @@ TEST_F(AttributeUtilityTest, CreateUnknownSet) {
   std::vector<CelAttributePattern> empty_patterns;
   AttributeUtility utility(empty_patterns, empty_patterns);
 
-  UnknownValue set = utility.CreateUnknownSet(trail.attribute());
+  UnknownValue set = utility.CreateUnknownSet(trail.attribute(), &arena_);
   ASSERT_THAT(set.ToAttributeSet(), SizeIs(1));
   ASSERT_OK_AND_ASSIGN(auto elem, set.ToAttributeSet().begin()->AsString());
   EXPECT_EQ(elem, "destination.ip");

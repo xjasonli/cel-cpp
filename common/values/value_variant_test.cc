@@ -110,6 +110,7 @@ TYPED_TEST(ValueVariantTest, MoveAssign) {
 }
 
 TYPED_TEST(ValueVariantTest, Swap) {
+  using std::swap;
   using Left = typename TypeParam::first_type;
   using Right = typename TypeParam::second_type;
 

@@ -33,8 +33,8 @@ absl::Status LookupIdent(absl::string_view name, ExecutionFrameBase& frame,
     }
     if (frame.unknown_processing_enabled() &&
         frame.attribute_utility().CheckForUnknownExact(attribute)) {
-      result =
-          frame.attribute_utility().CreateUnknownSet(attribute.attribute());
+      result = frame.attribute_utility().CreateUnknownSet(attribute.attribute(),
+                                                          frame.arena());
       return absl::OkStatus();
     }
   }

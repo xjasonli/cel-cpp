@@ -77,7 +77,7 @@ absl::StatusOr<Value> CreateStructStepForStruct::DoEvaluate(
     absl::optional<UnknownValue> unknown_set =
         frame->attribute_utility().IdentifyAndMergeUnknowns(
             args, frame->value_stack().GetAttributeSpan(entries_size),
-            /*use_partial=*/true);
+            /*use_partial=*/true, frame->arena());
     if (unknown_set.has_value()) {
       return *unknown_set;
     }

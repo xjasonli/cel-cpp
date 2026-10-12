@@ -39,7 +39,7 @@ void EvaluateNotStep(ExecutionFrame& frame) {
     const AttributeTrail& attribute_trail = frame.value_stack().PeekAttribute();
     if (frame.attribute_utility().CheckForUnknownPartial(attribute_trail)) {
       frame.value_stack().PopAndPush(frame.attribute_utility().CreateUnknownSet(
-          attribute_trail.attribute()));
+          attribute_trail.attribute(), frame.arena()));
       return;
     }
   }
@@ -123,7 +123,7 @@ void EvaluateBoolLogicStep(BoolLogicKind kind, size_t num_args,
   if (frame.enable_unknowns()) {
     // Check if unknown?
     std::optional<cel::UnknownValue> unknown_set =
-        frame.attribute_utility().MergeUnknowns(args);
+        frame.attribute_utility().MergeUnknowns(args, frame.arena());
     if (unknown_set.has_value()) {
       frame.value_stack().PopAndPush(num_args, *std::move(unknown_set));
       return;

@@ -756,6 +756,7 @@ cc_library(
         ":unknown",
         ":value_kind",
         "//base:attributes",
+        "//base:function_result_set",
         "//common/internal:byte_string",
         "//eval/internal:cel_value_equal",
         "//eval/public:cel_value",

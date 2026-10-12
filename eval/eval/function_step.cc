@@ -115,8 +115,8 @@ std::vector<cel::Value> CheckForPartialUnknowns(
 
     if (frame->attribute_utility().CheckForUnknown(trail,
                                                    /*use_partial=*/true)) {
-      result.push_back(
-          frame->attribute_utility().CreateUnknownSet(trail.attribute()));
+      result.push_back(frame->attribute_utility().CreateUnknownSet(
+          trail.attribute(), frame->arena()));
     } else {
       result.push_back(args.at(i));
     }
@@ -161,8 +161,8 @@ inline absl::StatusOr<Value> Invoke(
 
   if (frame.unknown_function_results_enabled() &&
       IsUnknownFunctionResultError(*result)) {
-    return frame.attribute_utility().CreateUnknownSet(overload.descriptor,
-                                                      expr_id, args);
+    return frame.attribute_utility().CreateUnknownSet(
+        overload.descriptor, expr_id, args, frame.arena());
   }
   return result;
 }
@@ -184,7 +184,7 @@ Value NoOverloadResult(absl::string_view name,
   if (frame.unknown_processing_enabled()) {
     // Already converted partial unknowns to unknown sets so just merge.
     absl::optional<UnknownValue> unknown_set =
-        frame.attribute_utility().MergeUnknowns(args);
+        frame.attribute_utility().MergeUnknowns(args, frame.arena());
     if (unknown_set.has_value()) {
       return *unknown_set;
     }

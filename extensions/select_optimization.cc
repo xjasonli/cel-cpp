@@ -688,7 +688,7 @@ absl::StatusOr<std::optional<Value>> CheckForMarkedAttributes(
     // declared pattern. Follow up will truncate the returned attribute to match
     // the pattern.
     return frame.attribute_utility().CreateUnknownSet(
-        attribute_trail.attribute());
+        attribute_trail.attribute(), frame.arena());
   }
 
   if (frame.missing_attribute_errors_enabled() &&

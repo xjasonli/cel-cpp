@@ -26,6 +26,7 @@
 #include "absl/base/nullability.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "base/function_result_set.h"
 #include "common/type.h"
 #include "common/unknown.h"
 #include "common/value_kind.h"
@@ -42,7 +43,7 @@ class UnknownValue;
 
 namespace common_internal {
 [[nodiscard]]
-UnknownValue MakeUnknownValue(Unknown value);
+UnknownValue MakeUnknownValue(Unknown value, google::protobuf::Arena* absl_nonnull arena);
 [[nodiscard]]
 Unknown GetUnknown(const UnknownValue& value);
 [[nodiscard]]
@@ -90,7 +91,8 @@ class UnknownValue final : private common_internal::ValueMixin<UnknownValue> {
 
   [[nodiscard]]
   AttributeSet ToAttributeSet() const {
-    return unknown_.unknown_attributes();
+    return unknown_ != nullptr ? unknown_->unknown_attributes()
+                               : AttributeSet();
   }
 
   void swap(UnknownValue& other) noexcept {
@@ -99,15 +101,16 @@ class UnknownValue final : private common_internal::ValueMixin<UnknownValue> {
   }
 
  private:
-  friend UnknownValue common_internal::MakeUnknownValue(Unknown value);
+  friend UnknownValue common_internal::MakeUnknownValue(
+      Unknown value, google::protobuf::Arena* absl_nonnull arena);
   friend Unknown common_internal::GetUnknown(const UnknownValue&);
   friend const FunctionResultSet& common_internal::GetUnknownFunctionResultSet(
       const UnknownValue& value);
   friend class common_internal::ValueMixin<UnknownValue>;
 
-  explicit UnknownValue(Unknown unknown) : unknown_(std::move(unknown)) {}
+  explicit UnknownValue(const Unknown* unknown) : unknown_(unknown) {}
 
-  Unknown unknown_;
+  const Unknown* unknown_ = nullptr;
 };
 
 inline void swap(UnknownValue& lhs, UnknownValue& rhs) noexcept {
@@ -120,20 +123,24 @@ inline std::ostream& operator<<(std::ostream& out, const UnknownValue& value) {
 
 namespace common_internal {
 
+const FunctionResultSet& GetEmptyFunctionResults();
+
 [[nodiscard]]
-inline UnknownValue MakeUnknownValue(Unknown value) {
-  return UnknownValue(std::move(value));
+inline UnknownValue MakeUnknownValue(Unknown value,
+                                     google::protobuf::Arena* absl_nonnull arena) {
+  return UnknownValue(google::protobuf::Arena::Create<Unknown>(arena, std::move(value)));
 }
 
 [[nodiscard]]
 inline Unknown GetUnknown(const UnknownValue& value) {
-  return value.unknown_;
+  return value.unknown_ != nullptr ? *value.unknown_ : Unknown();
 }
 
 [[nodiscard]]
 inline const FunctionResultSet& GetUnknownFunctionResultSet(
     const UnknownValue& value ABSL_ATTRIBUTE_LIFETIME_BOUND) {
-  return value.unknown_.unknown_function_results();
+  return value.unknown_ != nullptr ? value.unknown_->unknown_function_results()
+                                   : GetEmptyFunctionResults();
 }
 
 }  // namespace common_internal

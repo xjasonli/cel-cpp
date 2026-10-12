@@ -236,14 +236,15 @@ void PerformLookup(ExecutionFrameBase& frame, const Value& container,
     unknowns.MaybeAdd(key);
 
     if (!unknowns.IsEmpty()) {
-      result = std::move(unknowns).Build();
+      result = std::move(unknowns).Build(frame.arena());
       return;
     }
 
     trail = container_trail.Step(AttributeQualifierFromValue(key));
 
     if (frame.attribute_utility().CheckForUnknownExact(trail)) {
-      result = frame.attribute_utility().CreateUnknownSet(trail.attribute());
+      result = frame.attribute_utility().CreateUnknownSet(trail.attribute(),
+                                                          frame.arena());
       return;
     }
   }

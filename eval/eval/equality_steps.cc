@@ -58,7 +58,7 @@ absl::StatusOr<Value> EvaluateEquality(
     accu.MaybeAdd(lhs, lhs_attr);
     accu.MaybeAdd(rhs, rhs_attr);
     if (!accu.IsEmpty()) {
-      return std::move(accu).Build();
+      return std::move(accu).Build(frame.arena());
     }
   }
 
@@ -146,7 +146,7 @@ absl::StatusOr<Value> EvaluateIn(ExecutionFrameBase& frame, const Value& item,
     accu.MaybeAdd(item, item_attr);
     accu.MaybeAdd(container, container_attr);
     if (!accu.IsEmpty()) {
-      return std::move(accu).Build();
+      return std::move(accu).Build(frame.arena());
     }
   }
   if (container.IsList()) {
