@@ -725,7 +725,7 @@ class ParserVisitor final : public CelBaseVisitor,
 };
 
 template <typename T, typename = std::enable_if_t<
-                          std::is_base_of<antlr4::tree::ParseTree, T>::value>>
+                          std::is_base_of_v<antlr4::tree::ParseTree, T>>>
 T* tree_as(antlr4::tree::ParseTree* tree) {
   return dynamic_cast<T*>(tree);
 }
