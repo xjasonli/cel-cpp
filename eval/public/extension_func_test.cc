@@ -32,7 +32,7 @@ static const int kNanosPerSecond = 1000000000;
 
 class ExtensionTest : public ::testing::Test {
  protected:
-  ExtensionTest() {}
+  ExtensionTest() = default;
 
   void SetUp() override {
     ASSERT_OK(RegisterBuiltinFunctions(&registry_));

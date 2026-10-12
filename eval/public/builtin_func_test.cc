@@ -55,7 +55,7 @@ using ::testing::Eq;
 
 class BuiltinsTest : public ::testing::Test {
  protected:
-  BuiltinsTest() {}
+  BuiltinsTest() = default;
 
   // Helper method. Looks up in registry and tests comparison operation.
   void PerformRun(absl::string_view operation, absl::optional<CelValue> target,
@@ -1123,7 +1123,7 @@ class FakeList : public CelList {
 
 class FakeErrorMap : public CelMap {
  public:
-  FakeErrorMap() {}
+  FakeErrorMap() = default;
 
   int size() const override { return 0; }
 
