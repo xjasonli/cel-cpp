@@ -296,7 +296,7 @@ absl::StatusOr<absl::string_view> FormatBinary(
         sign_bit = true;
         // Negating min int is undefined behavior, so we need to use unsigned
         // arithmetic.
-        using unsigned_type = std::make_unsigned<decltype(tmp)>::type;
+        using unsigned_type = std::make_unsigned_t<decltype(tmp)>;
         unsigned_value = -static_cast<unsigned_type>(tmp);
       } else {
         unsigned_value = tmp;
@@ -354,7 +354,7 @@ absl::StatusOr<absl::string_view> FormatHex(
       if (tmp < 0) {
         // Negating min int is undefined behavior, so we need to use unsigned
         // arithmetic.
-        using unsigned_type = std::make_unsigned<decltype(tmp)>::type;
+        using unsigned_type = std::make_unsigned_t<decltype(tmp)>;
         scratch = absl::StrFormat("-%x", -static_cast<unsigned_type>(tmp));
       } else {
         scratch = absl::StrFormat("%x", tmp);
@@ -386,7 +386,7 @@ absl::StatusOr<absl::string_view> FormatOctal(
       if (tmp < 0) {
         // Negating min int is undefined behavior, so we need to use unsigned
         // arithmetic.
-        using unsigned_type = std::make_unsigned<decltype(tmp)>::type;
+        using unsigned_type = std::make_unsigned_t<decltype(tmp)>;
         scratch = absl::StrFormat("-%o", -static_cast<unsigned_type>(tmp));
       } else {
         scratch = absl::StrFormat("%o", tmp);
