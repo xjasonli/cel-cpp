@@ -70,6 +70,8 @@ class EmptyMapValue final : public common_internal::CompatMapValue {
 
   EmptyMapValue() = default;
 
+  google::protobuf::Arena* GetOwningArena() const override { return nullptr; }
+
   std::string DebugString() const override { return "{}"; }
 
   bool IsEmpty() const override { return true; }

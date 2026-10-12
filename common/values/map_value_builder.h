@@ -39,6 +39,9 @@ namespace common_internal {
 // `map_value_builder.cc`.
 class CompatMapValue : public CustomMapValueInterface,
                        public google::api::expr::runtime::CelMap {
+ public:
+  virtual google::protobuf::Arena* GetOwningArena() const = 0;
+
  private:
   NativeTypeId GetNativeTypeId() const final {
     return NativeTypeId::For<CompatMapValue>();
@@ -78,6 +81,9 @@ class MutableMapValue : public CustomMapValueInterface {
 // inheritance and `dynamic_cast`.
 class MutableCompatMapValue : public MutableMapValue,
                               public google::api::expr::runtime::CelMap {
+ public:
+  virtual google::protobuf::Arena* GetOwningArena() const = 0;
+
  private:
   NativeTypeId GetNativeTypeId() const final {
     return NativeTypeId::For<MutableCompatMapValue>();

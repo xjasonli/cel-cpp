@@ -53,6 +53,8 @@ class EmptyListValue final : public common_internal::CompatListValue {
 
   EmptyListValue() = default;
 
+  google::protobuf::Arena* GetOwningArena() const override { return nullptr; }
+
   std::string DebugString() const override { return "[]"; }
 
   bool IsEmpty() const override { return true; }

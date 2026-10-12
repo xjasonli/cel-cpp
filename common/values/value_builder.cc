@@ -251,6 +251,10 @@ class CompatListValueImpl final : public CompatListValue {
   explicit CompatListValueImpl(ValueVector&& elements)
       : elements_(std::move(elements)) {}
 
+  google::protobuf::Arena* GetOwningArena() const override {
+    return elements_.get_allocator().arena();
+  }
+
   std::string DebugString() const override {
     return absl::StrCat("[", absl::StrJoin(elements_, ", ", ValueFormatter{}),
                         "]");
@@ -387,6 +391,10 @@ class MutableCompatListValueImpl final : public MutableCompatListValue {
  public:
   explicit MutableCompatListValueImpl(google::protobuf::Arena* absl_nonnull arena)
       : elements_(arena) {}
+
+  google::protobuf::Arena* GetOwningArena() const override {
+    return elements_.get_allocator().arena();
+  }
 
   std::string DebugString() const override {
     return absl::StrCat("[", absl::StrJoin(elements_, ", ", ValueFormatter{}),
@@ -995,6 +1003,10 @@ class CompatMapValueImpl final : public CompatMapValue {
  public:
   explicit CompatMapValueImpl(ValueFlatHashMap&& map) : map_(std::move(map)) {}
 
+  google::protobuf::Arena* GetOwningArena() const override {
+    return map_.get_allocator().arena();
+  }
+
   std::string DebugString() const override {
     return absl::StrCat("{", absl::StrJoin(map_, ", ", ValueFormatter{}), "}");
   }
@@ -1158,6 +1170,10 @@ class TrivialMutableMapValueImpl final : public MutableCompatMapValue {
  public:
   explicit TrivialMutableMapValueImpl(google::protobuf::Arena* absl_nonnull arena)
       : map_(arena) {}
+
+  google::protobuf::Arena* GetOwningArena() const override {
+    return map_.get_allocator().arena();
+  }
 
   std::string DebugString() const override {
     return absl::StrCat("{", absl::StrJoin(map_, ", ", ValueFormatter{}), "}");
