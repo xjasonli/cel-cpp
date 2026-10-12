@@ -495,7 +495,7 @@ TEST(AstCrawlerTest, CheckExprRewriteHandlers) {
 // Simple rewrite that replaces a select path with a dot-qualified identifier.
 class RewriterExample : public AstRewriterBase {
  public:
-  RewriterExample() {}
+  RewriterExample() = default;
   bool PostVisitRewrite(Expr& expr) override {
     if (target_.has_value() && expr.id() == *target_) {
       expr.mutable_ident_expr().set_name("com.google.Identifier");
@@ -554,7 +554,7 @@ TEST(AstRewrite, SelectRewriteExample) {
 // both passes.
 class PreRewriterExample : public AstRewriterBase {
  public:
-  PreRewriterExample() {}
+  PreRewriterExample() = default;
   bool PreVisitRewrite(Expr& expr) override {
     if (expr.ident_expr().name() == "x") {
       expr.mutable_ident_expr().set_name("y");
