@@ -507,6 +507,17 @@ absl::flat_hash_set<int32_t> MakeOptionalIndicesSet(
   return optional_indices;
 }
 
+absl::flat_hash_set<size_t> MakeOptionalIndicesSet(
+    const cel::ListExpr& list_expr) {
+  absl::flat_hash_set<size_t> optional_indices;
+  for (size_t i = 0; i < list_expr.elements().size(); ++i) {
+    if (list_expr.elements()[i].optional()) {
+      optional_indices.insert(i);
+    }
+  }
+  return optional_indices;
+}
+
 class FlatExprVisitor : public cel::AstVisitor {
  public:
   enum class CallHandlerResult {
@@ -1350,7 +1361,17 @@ class FlatExprVisitor : public cel::AstVisitor {
         }
       }
     }
-    AddStep(CreateCreateListStep(list_expr), expr.id());
+    absl::flat_hash_set<size_t> optional_indices =
+        MakeOptionalIndicesSet(list_expr);
+    for (size_t index : optional_indices) {
+      if (!ValidateOrError(index < list_expr.elements().size(),
+                           "Optional index out of range: ", index,
+                           ", list size: ", list_expr.elements().size())) {
+        return;
+      }
+    }
+    AddStep(CreateCreateListStep(list_expr.elements().size(),
+                                 std::move(optional_indices), expr.id()));
   }
 
   // CreateStruct node handler.

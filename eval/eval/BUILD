@@ -36,6 +36,7 @@ cc_library(
     name = "evaluator_core",
     srcs = [
         "comprehension_step.cc",
+        "create_list_step.cc",
         "equality_steps.cc",
         "evaluator_core.cc",
         "function_step.cc",
@@ -45,6 +46,7 @@ cc_library(
     ],
     hdrs = [
         "comprehension_step.h",
+        "create_list_step.h",
         "equality_steps.h",
         "evaluator_core.h",
         "function_step.h",
@@ -65,6 +67,7 @@ cc_library(
         "//common:expr",
         "//common:function_descriptor",
         "//common:kind",
+        "//common:optional_ref",
         "//common:value",
         "//common:value_kind",
         "//eval/internal:errors",
@@ -83,6 +86,7 @@ cc_library(
         "@com_google_absl//absl/base",
         "@com_google_absl//absl/base:core_headers",
         "@com_google_absl//absl/base:nullability",
+        "@com_google_absl//absl/container:flat_hash_set",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/log:absl_log",
         "@com_google_absl//absl/status",
@@ -299,29 +303,6 @@ cc_library(
         "@com_google_absl//absl/strings",
         "@com_google_absl//absl/types:optional",
         "@com_google_protobuf//:protobuf",
-    ],
-)
-
-cc_library(
-    name = "create_list_step",
-    srcs = [
-        "create_list_step.cc",
-    ],
-    hdrs = [
-        "create_list_step.h",
-    ],
-    deps = [
-        ":attribute_utility",
-        ":evaluator_core",
-        ":expression_step_base",
-        ":expression_step_logic",
-        "//common:expr",
-        "//common:value",
-        "//internal:status_macros",
-        "@com_google_absl//absl/container:flat_hash_set",
-        "@com_google_absl//absl/status",
-        "@com_google_absl//absl/status:statusor",
-        "@com_google_absl//absl/types:optional",
     ],
 )
 
@@ -658,7 +639,6 @@ cc_test(
     ],
     deps = [
         ":cel_expression_flat_impl",
-        ":create_list_step",
         ":evaluator_core",
         "//base:attributes",
         "//base:data",

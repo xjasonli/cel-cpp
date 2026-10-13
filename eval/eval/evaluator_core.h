@@ -39,6 +39,7 @@
 #include "eval/eval/attribute_utility.h"
 #include "eval/eval/comprehension_slots.h"
 #include "eval/eval/comprehension_step.h"
+#include "eval/eval/create_list_step.h"
 #include "eval/eval/equality_steps.h"
 #include "eval/eval/evaluator_stack.h"
 #include "eval/eval/expression_step_logic.h"
@@ -112,6 +113,9 @@ enum class ExpressionStepKind : uint16_t {
   // Special built-in steps for mutable lists implementing map/filter.
   kNewMutableList = 31,
   kMutableListAppend = 32,
+  // Create list step.
+  kCreateList = 33,
+  kCreateSmallList = 34,
 };
 
 struct BoolJumpStepInfo {
@@ -336,6 +340,20 @@ class ExpressionStep {
     return step;
   }
 
+  static ExpressionStep MakeCreateListStep(
+      std::unique_ptr<ListStepInfo> step_impl, int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kCreateList, id);
+    step.u_.create_list_step = step_impl.release();
+    return step;
+  }
+
+  static ExpressionStep MakeCreateSmallListStep(SmallListStepInfo info,
+                                                int64_t id = -1) {
+    ExpressionStep step(ExpressionStepKind::kCreateSmallList, id);
+    step.u_.create_small_list_step = info;
+    return step;
+  }
+
  private:
   static ABSL_ATTRIBUTE_ALWAYS_INLINE inline void EvaluateReadSlotStep(
       size_t slot_index, ExecutionFrame& frame);
@@ -406,6 +424,8 @@ class ExpressionStep {
     EagerFunctionStep* eager_function_step;
     LazyFunctionStep* lazy_function_step;
     std::string* identifier;
+    ListStepInfo* create_list_step;
+    SmallListStepInfo create_small_list_step;
 
     Data() : empty(nullptr) {}
     ~Data() {}
@@ -982,6 +1002,9 @@ inline ExpressionStep::~ExpressionStep() {
     case ExpressionStepKind::kLazyFunction:
       delete u_.lazy_function_step;
       break;
+    case ExpressionStepKind::kCreateList:
+      delete u_.create_list_step;
+      break;
     case ExpressionStepKind::kMovedFrom:
     case ExpressionStepKind::kIntConstant:
     case ExpressionStepKind::kBoolConstant:
@@ -1010,6 +1033,7 @@ inline ExpressionStep::~ExpressionStep() {
     case ExpressionStepKind::kFastNotEqual:
     case ExpressionStepKind::kNewMutableList:
     case ExpressionStepKind::kMutableListAppend:
+    case ExpressionStepKind::kCreateSmallList:
       break;
     default:
       ABSL_UNREACHABLE();
@@ -1201,6 +1225,12 @@ inline void ExpressionStep::Evaluate(ExecutionFrame& frame) const {
       break;
     case ExpressionStepKind::kMutableListAppend:
       EvaluateMutableListAppendStep(frame);
+      break;
+    case ExpressionStepKind::kCreateList:
+      EvaluateListStep(*u_.create_list_step, frame);
+      break;
+    case ExpressionStepKind::kCreateSmallList:
+      EvaluateSmallListStep(u_.create_small_list_step, frame);
       break;
     case ExpressionStepKind::kMovedFrom:
       frame.Abort(absl::InternalError(
