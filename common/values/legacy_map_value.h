@@ -188,6 +188,9 @@ CustomMapValue WrapLegacyParsedMapField(ParsedMapFieldValue value,
 CustomMapValue WrapLegacyParsedJsonMap(ParsedJsonMapValue value,
                                        google::protobuf::Arena* absl_nonnull arena);
 
+MapValue FromLegacyMap(
+    const google::api::expr::runtime::CelMap* absl_nullable cel_map);
+
 }  // namespace common_internal
 
 }  // namespace cel

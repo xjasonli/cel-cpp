@@ -253,11 +253,10 @@ class LegacyParsedMapFieldMapValue final
       const google::api::expr::runtime::CelValue& key) const override {
     CEL_RETURN_IF_ERROR(
         google::api::expr::runtime::CelValue::CheckMapKeyType(key));
-    google::protobuf::Arena scratch_arena;
     Value modern_key;
-    CEL_RETURN_IF_ERROR(ModernValue(&scratch_arena, key, modern_key));
+    CEL_RETURN_IF_ERROR(ModernValue(arena_, key, modern_key));
     return Has(modern_key, google::protobuf::DescriptorPool::generated_pool(),
-               google::protobuf::MessageFactory::generated_factory(), &scratch_arena);
+               google::protobuf::MessageFactory::generated_factory(), arena_);
   }
 
   absl::StatusOr<const google::api::expr::runtime::CelList*> ListKeys()
@@ -280,6 +279,8 @@ class LegacyParsedMapFieldMapValue final
     }
     return legacy_list->cel_list();
   }
+
+  google::protobuf::Arena* absl_nonnull arena() const { return arena_; }
 
  private:
   NativeTypeId GetNativeTypeId() const override {
@@ -440,11 +441,10 @@ class LegacyParsedJsonMapValue final
       const google::api::expr::runtime::CelValue& key) const override {
     CEL_RETURN_IF_ERROR(
         google::api::expr::runtime::CelValue::CheckMapKeyType(key));
-    google::protobuf::Arena scratch_arena;
     Value modern_key;
-    CEL_RETURN_IF_ERROR(ModernValue(&scratch_arena, key, modern_key));
+    CEL_RETURN_IF_ERROR(ModernValue(arena_, key, modern_key));
     return Has(modern_key, google::protobuf::DescriptorPool::generated_pool(),
-               google::protobuf::MessageFactory::generated_factory(), &scratch_arena);
+               google::protobuf::MessageFactory::generated_factory(), arena_);
   }
 
   absl::StatusOr<const google::api::expr::runtime::CelList*> ListKeys()
@@ -468,6 +468,8 @@ class LegacyParsedJsonMapValue final
     return legacy_list->cel_list();
   }
 
+  google::protobuf::Arena* absl_nonnull arena() const { return arena_; }
+
  private:
   NativeTypeId GetNativeTypeId() const override {
     return NativeTypeId::For<LegacyParsedJsonMapValue>();
@@ -489,6 +491,40 @@ CustomMapValue WrapLegacyParsedJsonMap(ParsedJsonMapValue value,
   return CustomMapValue(google::protobuf::Arena::Create<LegacyParsedJsonMapValue>(
                             arena, std::move(value), arena),
                         arena);
+}
+
+MapValue FromLegacyMap(
+    const google::api::expr::runtime::CelMap* absl_nullable cel_map) {
+  if (cel_map != nullptr) {
+    NativeTypeId native_type_id = NativeTypeId::Of(*cel_map);
+    if (native_type_id == NativeTypeId::For<LegacyParsedMapFieldMapValue>()) {
+      const auto* impl =
+          cel::internal::down_cast<const LegacyParsedMapFieldMapValue*>(
+              cel_map);
+      return CustomMapValue(impl, impl->arena());
+    }
+    if (native_type_id == NativeTypeId::For<LegacyParsedJsonMapValue>()) {
+      const auto* impl =
+          cel::internal::down_cast<const LegacyParsedJsonMapValue*>(cel_map);
+      return CustomMapValue(impl, impl->arena());
+    }
+    if (native_type_id == NativeTypeId::For<CompatMapValue>()) {
+      const auto* impl =
+          cel::internal::down_cast<const CompatMapValue*>(cel_map);
+      if (google::protobuf::Arena* arena = impl->GetOwningArena(); arena != nullptr) {
+        return CustomMapValue(impl, arena);
+      }
+      return CustomMapValue();
+    }
+    if (native_type_id == NativeTypeId::For<MutableCompatMapValue>()) {
+      const auto* impl =
+          cel::internal::down_cast<const MutableCompatMapValue*>(cel_map);
+      if (google::protobuf::Arena* arena = impl->GetOwningArena(); arena != nullptr) {
+        return CustomMapValue(impl, arena);
+      }
+    }
+  }
+  return LegacyMapValue(cel_map);
 }
 
 absl::Status LegacyMapValue::Equal(

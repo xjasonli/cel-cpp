@@ -1063,12 +1063,10 @@ absl::Status ModernValue(google::protobuf::Arena* arena,
       result = UnsafeTimestampValue(legacy_value.TimestampOrDie());
       return absl::OkStatus();
     case CelValue::Type::kList:
-      result =
-          ListValue(common_internal::LegacyListValue(legacy_value.ListOrDie()));
+      result = common_internal::FromLegacyList(legacy_value.ListOrDie());
       return absl::OkStatus();
     case CelValue::Type::kMap:
-      result =
-          MapValue(common_internal::LegacyMapValue(legacy_value.MapOrDie()));
+      result = common_internal::FromLegacyMap(legacy_value.MapOrDie());
       return absl::OkStatus();
     case CelValue::Type::kUnknownSet:
       result = common_internal::MakeUnknownValue(
@@ -1178,10 +1176,9 @@ absl::StatusOr<Value> FromLegacyValue(google::protobuf::Arena* arena,
     case CelValue::Type::kTimestamp:
       return UnsafeTimestampValue(legacy_value.TimestampOrDie());
     case CelValue::Type::kList:
-      return ListValue(
-          common_internal::LegacyListValue(legacy_value.ListOrDie()));
+      return common_internal::FromLegacyList(legacy_value.ListOrDie());
     case CelValue::Type::kMap:
-      return MapValue(common_internal::LegacyMapValue(legacy_value.MapOrDie()));
+      return common_internal::FromLegacyMap(legacy_value.MapOrDie());
     case CelValue::Type::kUnknownSet:
       return common_internal::MakeUnknownValue(*legacy_value.UnknownSetOrDie(),
                                                arena);

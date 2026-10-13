@@ -171,6 +171,9 @@ CustomListValue WrapLegacyParsedRepeatedField(
 CustomListValue WrapLegacyParsedJsonList(ParsedJsonListValue value,
                                          google::protobuf::Arena* absl_nonnull arena);
 
+ListValue FromLegacyList(
+    const google::api::expr::runtime::CelList* absl_nullable cel_list);
+
 }  // namespace common_internal
 
 }  // namespace cel

@@ -80,6 +80,8 @@ class LegacyParsedRepeatedFieldListValue final
     return UnsafeLegacyValue(result, /*stable=*/false, arena);
   }
 
+  google::protobuf::Arena* absl_nonnull arena() const { return arena_; }
+
  protected:
   std::string DebugString() const override { return value_.DebugString(); }
 
@@ -202,6 +204,8 @@ class LegacyParsedJsonListValue final
     return UnsafeLegacyValue(result, /*stable=*/false, arena);
   }
 
+  google::protobuf::Arena* absl_nonnull arena() const { return arena_; }
+
  protected:
   std::string DebugString() const override { return value_.DebugString(); }
 
@@ -294,6 +298,41 @@ CustomListValue WrapLegacyParsedJsonList(ParsedJsonListValue value,
   return CustomListValue(google::protobuf::Arena::Create<LegacyParsedJsonListValue>(
                              arena, std::move(value), arena),
                          arena);
+}
+
+ListValue FromLegacyList(
+    const google::api::expr::runtime::CelList* absl_nullable cel_list) {
+  if (cel_list != nullptr) {
+    NativeTypeId native_type_id = NativeTypeId::Of(*cel_list);
+    if (native_type_id ==
+        NativeTypeId::For<LegacyParsedRepeatedFieldListValue>()) {
+      const auto* impl =
+          cel::internal::down_cast<const LegacyParsedRepeatedFieldListValue*>(
+              cel_list);
+      return CustomListValue(impl, impl->arena());
+    }
+    if (native_type_id == NativeTypeId::For<LegacyParsedJsonListValue>()) {
+      const auto* impl =
+          cel::internal::down_cast<const LegacyParsedJsonListValue*>(cel_list);
+      return CustomListValue(impl, impl->arena());
+    }
+    if (native_type_id == NativeTypeId::For<CompatListValue>()) {
+      const auto* impl =
+          cel::internal::down_cast<const CompatListValue*>(cel_list);
+      if (google::protobuf::Arena* arena = impl->GetOwningArena(); arena != nullptr) {
+        return CustomListValue(impl, arena);
+      }
+      return CustomListValue();
+    }
+    if (native_type_id == NativeTypeId::For<MutableCompatListValue>()) {
+      const auto* impl =
+          cel::internal::down_cast<const MutableCompatListValue*>(cel_list);
+      if (google::protobuf::Arena* arena = impl->GetOwningArena(); arena != nullptr) {
+        return CustomListValue(impl, arena);
+      }
+    }
+  }
+  return LegacyListValue(cel_list);
 }
 
 absl::Status LegacyListValue::Equal(
