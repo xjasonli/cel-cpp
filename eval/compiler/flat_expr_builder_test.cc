@@ -3104,6 +3104,50 @@ TEST(FlatExprBuilderTest,
   EXPECT_THAT(result, test::IsCelBool(true));
 }
 
+TEST(FlatExprBuilderTest, ListAppendComprehensionWithTargetFailsPlanning) {
+  ParsedExpr parsed_expr;
+  ASSERT_TRUE(google::protobuf::TextFormat::ParseFromString(
+      R"pb(
+        expr {
+          comprehension_expr {
+            iter_var: "x"
+            iter_range {
+              list_expr {
+                elements { const_expr { int64_value: 1 } }
+                elements { const_expr { int64_value: 2 } }
+                elements { const_expr { int64_value: 3 } }
+                elements { const_expr { int64_value: 4 } }
+              }
+            }
+            accu_var: "__result__"
+            accu_init { list_expr {} }
+            loop_condition { const_expr { bool_value: true } }
+            loop_step {
+              call_expr {
+                target { const_expr { int64_value: 0 } }
+                function: "_+_"
+                args { ident_expr { name: "__result__" } }
+                args {
+                  list_expr { elements { const_expr { int64_value: 1 } } }
+                }
+              }
+            }
+            result { ident_expr { name: "__result__" } }
+          }
+        }
+      )pb",
+      &parsed_expr));
+
+  cel::RuntimeOptions options;
+  options.enable_comprehension_list_append = true;
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv(), options);
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+
+  EXPECT_THAT(
+      builder.CreateExpression(&parsed_expr.expr(), &parsed_expr.source_info()),
+      StatusIs(absl::StatusCode::kInvalidArgument));
+}
+
 }  // namespace
 
 }  // namespace google::api::expr::runtime

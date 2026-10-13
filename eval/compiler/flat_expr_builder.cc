@@ -343,7 +343,8 @@ bool IsOptimizableListAppend(const cel::ComprehensionExpr* comprehension,
     call_expr = &(call_expr->args()[1].call_expr());
   }
 
-  return call_expr->function() == cel::builtin::kAdd &&
+  return !call_expr->has_target() &&
+         call_expr->function() == cel::builtin::kAdd &&
          call_expr->args().size() == 2 &&
          call_expr->args()[0].has_ident_expr() &&
          call_expr->args()[0].ident_expr().name() == accu_var &&
@@ -416,7 +417,8 @@ bool IsOptimizableMapInsert(const cel::ComprehensionExpr* comprehension,
     }
     call_expr = &(call_expr->args()[1].call_expr());
   }
-  return call_expr->function() == "cel.@mapInsert" &&
+  return !call_expr->has_target() &&
+         call_expr->function() == "cel.@mapInsert" &&
          (call_expr->args().size() == 2 || call_expr->args().size() == 3) &&
          call_expr->args()[0].has_ident_expr() &&
          call_expr->args()[0].ident_expr().name() == accu_var;
