@@ -430,14 +430,11 @@ class FlatExpressionEvaluatorState {
  public:
   FlatExpressionEvaluatorState(
       size_t value_stack_size, size_t comprehension_slot_count,
-      const cel::TypeProvider& type_provider,
+      size_t iterator_stack_size, const cel::TypeProvider& type_provider,
       const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
       google::protobuf::MessageFactory* absl_nullable message_factory = nullptr)
       : value_stack_(value_stack_size),
-        // We currently use comprehension_slot_count because it is less of an
-        // over estimate than value_stack_size. In future we should just
-        // calculate the correct capacity.
-        iterator_stack_(comprehension_slot_count),
+        iterator_stack_(iterator_stack_size),
         comprehension_slots_(comprehension_slot_count),
         type_provider_(type_provider),
         descriptor_pool_(descriptor_pool),
@@ -445,15 +442,12 @@ class FlatExpressionEvaluatorState {
 
   FlatExpressionEvaluatorState(
       size_t value_stack_size, size_t comprehension_slot_count,
-      const cel::TypeProvider& type_provider,
+      size_t iterator_stack_size, const cel::TypeProvider& type_provider,
       const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
       google::protobuf::MessageFactory* absl_nonnull message_factory,
       google::protobuf::Arena* absl_nonnull arena)
       : value_stack_(value_stack_size),
-        // We currently use comprehension_slot_count because it is less of an
-        // over estimate than value_stack_size. In future we should just
-        // calculate the correct capacity.
-        iterator_stack_(comprehension_slot_count),
+        iterator_stack_(iterator_stack_size),
         comprehension_slots_(comprehension_slot_count),
         type_provider_(type_provider),
         descriptor_pool_(descriptor_pool),
@@ -859,19 +853,21 @@ class FlatExpression {
       : path_(std::move(path)),
         subexpressions_({path_}),
         comprehension_slots_size_(comprehension_slots_size),
+        iterator_stack_size_(comprehension_slots_size),
         type_provider_(type_provider),
         options_(options),
         arena_(std::move(arena)) {}
 
   FlatExpression(ExecutionPath path,
                  std::vector<ExecutionPathView> subexpressions,
-                 size_t comprehension_slots_size,
+                 size_t comprehension_slots_size, size_t iterator_stack_size,
                  const cel::TypeProvider& type_provider,
                  const cel::RuntimeOptions& options,
                  absl_nullable std::shared_ptr<google::protobuf::Arena> arena = nullptr)
       : path_(std::move(path)),
         subexpressions_(std::move(subexpressions)),
         comprehension_slots_size_(comprehension_slots_size),
+        iterator_stack_size_(iterator_stack_size),
         type_provider_(type_provider),
         options_(options),
         arena_(std::move(arena)) {}
@@ -914,12 +910,15 @@ class FlatExpression {
 
   size_t comprehension_slots_size() const { return comprehension_slots_size_; }
 
+  size_t iterator_stack_size() const { return iterator_stack_size_; }
+
   const cel::TypeProvider& type_provider() const { return type_provider_; }
 
  private:
   ExecutionPath path_;
   std::vector<ExecutionPathView> subexpressions_;
   size_t comprehension_slots_size_;
+  size_t iterator_stack_size_;
   const cel::TypeProvider& type_provider_;
   cel::RuntimeOptions options_;
   // Arena used during planning phase, may hold constant values so should be

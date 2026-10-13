@@ -84,7 +84,7 @@ TEST(EvaluatorCoreTest, ExecutionFrameNext) {
   cel::Activation activation;
   FlatExpressionEvaluatorState state(
       path.size(),
-      /*comprehension_slots_size=*/0, type_provider,
+      /*comprehension_slot_count=*/0, /*iterator_stack_size=*/0, type_provider,
       cel::internal::GetTestingDescriptorPool(),
       cel::internal::GetTestingMessageFactory(), &arena);
   ExecutionFrame frame(path, activation, options, state);
@@ -111,7 +111,7 @@ TEST(EvaluatorCoreTest, JumpOutOfRangeAborts) {
   cel::Activation activation;
   FlatExpressionEvaluatorState state(
       path.size(),
-      /*comprehension_slots_size=*/0, type_provider,
+      /*comprehension_slot_count=*/0, /*iterator_stack_size=*/0, type_provider,
       cel::internal::GetTestingDescriptorPool(),
       cel::internal::GetTestingMessageFactory(), &arena);
   ExecutionFrame frame(path, activation, options, state);
