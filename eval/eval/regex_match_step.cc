@@ -66,6 +66,10 @@ class RegexMatchStep final : public ExpressionStepBase {
     }
     auto input_args = frame->value_stack().GetSpan(kNumRegexMatchArguments);
     const auto& subject = input_args[kRegexMatchStepSubject];
+    if (subject.IsUnknown() || subject.IsError()) {
+      // Propagate unknowns and errors.
+      return;
+    }
     if (!subject->Is<cel::StringValue>()) {
       frame->Abort(absl::InternalError(
           "First argument for regular expression match must be a string"));
