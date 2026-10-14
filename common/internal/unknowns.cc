@@ -159,7 +159,7 @@ std::string UnknownTree::ToString(
   return result;
 }
 
-UnknownSet UnknownTree::GraftImpl(const UnknownSet& in) {
+void UnknownTree::GraftImpl(const UnknownSet& in, UnknownSet& out) {
   ABSL_DCHECK_NE(in.root, RootIfPresent());
   // This should only happen in rare circumstances where somebody passed an
   // UnknownValue from one expression evaluation into another.
@@ -184,11 +184,9 @@ UnknownSet UnknownTree::GraftImpl(const UnknownSet& in) {
     std::sort(unknown_function_set->nodes,
               unknown_function_set->nodes + unknown_function_set->size);
   }
-  return UnknownSet{
-      .root = Root(),
-      .attributes = unknown_attribute_set,
-      .functions = unknown_function_set,
-  };
+  out.root = Root();
+  out.attributes = unknown_attribute_set;
+  out.functions = unknown_function_set;
 }
 
 UnknownAttributeNode* UnknownTree::GraftImpl(const UnknownAttributeNode* in) {

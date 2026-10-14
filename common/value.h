@@ -1020,9 +1020,7 @@ class Value final : private common_internal::ValueMixin<Value> {
   // Performs a checked cast from a value to an unknown value,
   // returning a non-empty optional with either a value or reference to the
   // unknown value. Otherwise an empty optional is returned.
-  optional_ref<const UnknownValue> AsUnknown() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
-    return std::as_const(*this).AsUnknown();
-  }
+  optional_ref<UnknownValue> AsUnknown() & ABSL_ATTRIBUTE_LIFETIME_BOUND;
   optional_ref<const UnknownValue> AsUnknown()
       const& ABSL_ATTRIBUTE_LIFETIME_BOUND;
   absl::optional<UnknownValue> AsUnknown() &&;
@@ -1666,7 +1664,7 @@ class Value final : private common_internal::ValueMixin<Value> {
   // `AsUnknown()`.
   template <typename T>
       std::enable_if_t<std::is_same_v<UnknownValue, T>,
-                       optional_ref<const UnknownValue>>
+                       optional_ref<UnknownValue>>
       As() & ABSL_ATTRIBUTE_LIFETIME_BOUND {
     return AsUnknown();
   }
@@ -3188,6 +3186,13 @@ inline absl::optional<UintValue> Value::AsUint() const {
 inline optional_ref<const UnknownValue> Value::AsUnknown() const& {
   if (const auto* alternative = variant_.As<UnknownValue>();
       alternative != nullptr) {
+    return *alternative;
+  }
+  return std::nullopt;
+}
+
+inline optional_ref<UnknownValue> Value::AsUnknown() & {
+  if (auto* alternative = variant_.As<UnknownValue>(); alternative != nullptr) {
     return *alternative;
   }
   return std::nullopt;

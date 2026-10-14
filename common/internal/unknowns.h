@@ -22,6 +22,7 @@
 #include <string>
 #include <variant>
 
+#include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/base/optimization.h"
 #include "absl/container/flat_hash_set.h"
@@ -258,7 +259,9 @@ class UnknownTree {
   UnknownTree(const UnknownTree&) = delete;
   UnknownTree& operator=(const UnknownTree&) = delete;
 
-  explicit UnknownTree(google::protobuf::Arena* absl_nonnull arena) : arena_(arena) {}
+  explicit UnknownTree(google::protobuf::Arena* absl_nonnull arena) : arena_(arena) {
+    ABSL_DCHECK(arena != nullptr);
+  }
 
   void MaybeReset(google::protobuf::Arena* absl_nonnull arena) {
     ABSL_DCHECK(arena != nullptr);
@@ -345,21 +348,41 @@ class UnknownTree {
   // address for efficiency. This function does that grafting when it is
   // required.
   [[nodiscard]]
-  UnknownSet Graft(const UnknownSet& in) {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE UnknownSet Graft(const UnknownSet& in) {
     // Fast path, should be taken almost always.
+    UnknownSet out;
     if (ABSL_PREDICT_TRUE(in.root == nullptr || in.root == RootIfPresent())) {
-      return in;
+      ABSL_DCHECK(in.root != nullptr || in.attributes == nullptr);
+      ABSL_DCHECK(in.root != nullptr || in.functions == nullptr);
+      out = in;
+    } else {
+      // Slow path, should be taken extremely rarely.
+      GraftImpl(in, out);
     }
-    // Slow path, should be taken extremely rarely.
-    return GraftImpl(in);
+    return out;
+  }
+
+  // In the rare event that somebody manages to pass an unknown set from one
+  // expression into another, we need to be able to graft those nodes into our
+  // tree. The unknown attribute set and unknown function set sort nodes by
+  // address for efficiency. This function does that grafting when it is
+  // required.
+  ABSL_ATTRIBUTE_ALWAYS_INLINE void GraftAt(UnknownSet& in) {
+    if (ABSL_PREDICT_TRUE(in.root == nullptr || in.root == RootIfPresent())) {
+      // Fast path, should be taken almost always.
+      ABSL_DCHECK(in.root != nullptr || in.attributes == nullptr);
+      ABSL_DCHECK(in.root != nullptr || in.functions == nullptr);
+    } else {
+      // Slow path, should be taken extremely rarely.
+      GraftImpl(in, in);
+    }
   }
 
  private:
   friend class UnknownAttributeNode;
   friend class UnknownRoot;
 
-  [[nodiscard]]
-  UnknownSet GraftImpl(const UnknownSet& in);
+  ABSL_ATTRIBUTE_NOINLINE void GraftImpl(const UnknownSet& in, UnknownSet& out);
 
   [[nodiscard]]
   UnknownAttributeNode* GraftImpl(const UnknownAttributeNode* in);
