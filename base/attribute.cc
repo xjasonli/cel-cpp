@@ -14,6 +14,7 @@
 
 #include "base/attribute.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <string>
@@ -21,7 +22,7 @@
 #include <variant>
 
 #include "absl/algorithm/container.h"
-#include "absl/base/macros.h"
+#include "absl/base/attributes.h"
 #include "absl/base/nullability.h"
 #include "absl/log/absl_check.h"
 #include "absl/meta/type_traits.h"
@@ -29,6 +30,7 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/compare.h"
 #include "base/kind.h"
 #include "internal/lexis.h"
 #include "internal/status_macros.h"
@@ -195,58 +197,6 @@ Kind AttributeQualifier::kind() const {
   return std::visit(AttributeQualifierTypeVisitor{}, value_);
 }
 
-bool Attribute::operator==(const Attribute& other) const {
-  // We cannot check pointer equality as a short circuit because we have to
-  // treat all invalid AttributeQualifier as not equal to each other.
-  // TODO(issues/41) we only support Ident-rooted attributes at the moment.
-  if (variable_name() != other.variable_name()) {
-    return false;
-  }
-
-  if (qualifier_path().size() != other.qualifier_path().size()) {
-    return false;
-  }
-
-  for (size_t i = 0; i < qualifier_path().size(); i++) {
-    if (!(qualifier_path()[i] == other.qualifier_path()[i])) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-bool Attribute::operator<(const Attribute& other) const {
-  if (impl_.get() == other.impl_.get()) {
-    return false;
-  }
-  auto lhs_begin = qualifier_path().begin();
-  auto lhs_end = qualifier_path().end();
-  auto rhs_begin = other.qualifier_path().begin();
-  auto rhs_end = other.qualifier_path().end();
-  while (lhs_begin != lhs_end && rhs_begin != rhs_end) {
-    if (*lhs_begin < *rhs_begin) {
-      return true;
-    }
-    if (!(*lhs_begin == *rhs_begin)) {
-      return false;
-    }
-    lhs_begin++;
-    rhs_begin++;
-  }
-  if (lhs_begin == lhs_end && rhs_begin == rhs_end) {
-    // Neither has any elements left, they are equal. Compare variable names.
-    return variable_name() < other.variable_name();
-  }
-  if (lhs_begin == lhs_end) {
-    // Left has no more elements. Right is greater.
-    return true;
-  }
-  // Right has no more elements. Left is greater.
-  ABSL_ASSERT(rhs_begin == rhs_end);
-  return false;
-}
-
 absl::StatusOr<std::string> Attribute::AsString() const {
   if (variable_name().empty()) {
     return absl::InvalidArgumentError(
@@ -368,65 +318,103 @@ bool AttributeQualifierPattern::IsMatch(absl::string_view other_key) const {
 namespace {
 
 struct AttributeQualifierEqualTo {
-  bool operator()(const std::monostate&, const std::monostate&) const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(const std::monostate&,
+                                               const std::monostate&) const {
     return false;
   }
 
   template <typename T>
-  std::enable_if_t<!std::is_same_v<absl::remove_cvref_t<T>, std::monostate>,
-                   bool>
+  ABSL_ATTRIBUTE_ALWAYS_INLINE std::enable_if_t<
+      !std::is_same_v<absl::remove_cvref_t<T>, std::monostate>, bool>
   operator()(const std::monostate&, const T&) const {
     return false;
   }
 
   template <typename T>
-  std::enable_if_t<!std::is_same_v<absl::remove_cvref_t<T>, std::monostate>,
-                   bool>
+  ABSL_ATTRIBUTE_ALWAYS_INLINE std::enable_if_t<
+      !std::is_same_v<absl::remove_cvref_t<T>, std::monostate>, bool>
   operator()(const T&, const std::monostate&) const {
     return false;
   }
 
-  bool operator()(bool lhs, bool rhs) const { return lhs == rhs; }
-
-  bool operator()(bool, int64_t) const { return false; }
-
-  bool operator()(bool, uint64_t) const { return false; }
-
-  bool operator()(bool, absl::string_view) const { return false; }
-
-  bool operator()(int64_t, bool) const { return false; }
-
-  bool operator()(int64_t lhs, int64_t rhs) const { return lhs == rhs; }
-
-  bool operator()(int64_t, uint64_t) const { return false; }
-
-  bool operator()(int64_t, absl::string_view) const { return false; }
-
-  bool operator()(uint64_t, bool) const { return false; }
-
-  bool operator()(uint64_t, int64_t) const { return false; }
-
-  bool operator()(uint64_t lhs, uint64_t rhs) const { return lhs == rhs; }
-
-  bool operator()(uint64_t, absl::string_view) const { return false; }
-
-  bool operator()(absl::string_view, bool) const { return false; }
-
-  bool operator()(absl::string_view, int64_t) const { return false; }
-
-  bool operator()(absl::string_view, uint64_t) const { return false; }
-
-  bool operator()(absl::string_view lhs, absl::string_view rhs) const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(bool lhs, bool rhs) const {
     return lhs == rhs;
   }
 
-  bool operator()(const common_internal::WildcardType&,
-                  const common_internal::WildcardType&) const {
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(bool, int64_t) const {
+    return false;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(bool, uint64_t) const {
+    return false;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(bool, absl::string_view) const {
+    return false;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(int64_t, bool) const {
+    return false;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(int64_t lhs, int64_t rhs) const {
+    return lhs == rhs;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(int64_t, uint64_t) const {
+    return false;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(int64_t,
+                                               absl::string_view) const {
+    return false;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(uint64_t, bool) const {
+    return false;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(uint64_t, int64_t) const {
+    return false;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(uint64_t lhs,
+                                               uint64_t rhs) const {
+    return lhs == rhs;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(uint64_t,
+                                               absl::string_view) const {
+    return false;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(absl::string_view, bool) const {
+    return false;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(absl::string_view,
+                                               int64_t) const {
+    return false;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(absl::string_view,
+                                               uint64_t) const {
+    return false;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(absl::string_view lhs,
+                                               absl::string_view rhs) const {
+    return lhs == rhs;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE bool operator()(
+      const common_internal::WildcardType&,
+      const common_internal::WildcardType&) const {
     return true;
   }
 
   template <typename T>
-  std::enable_if_t<
+  ABSL_ATTRIBUTE_ALWAYS_INLINE std::enable_if_t<
       !std::is_same_v<absl::remove_cvref_t<T>, common_internal::WildcardType> &&
           !std::is_same_v<absl::remove_cvref_t<T>, std::monostate>,
       bool>
@@ -435,7 +423,7 @@ struct AttributeQualifierEqualTo {
   }
 
   template <typename T>
-  std::enable_if_t<
+  ABSL_ATTRIBUTE_ALWAYS_INLINE std::enable_if_t<
       !std::is_same_v<absl::remove_cvref_t<T>, common_internal::WildcardType> &&
           !std::is_same_v<absl::remove_cvref_t<T>, std::monostate>,
       bool>
@@ -444,84 +432,242 @@ struct AttributeQualifierEqualTo {
   }
 };
 
-struct AttributeQualifierLess {
-  bool operator()(const std::monostate&, const std::monostate&) const {
-    return false;
+template <typename T>
+[[nodiscard]]
+ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering SynthesizeCompare(T lhs,
+                                                                     T rhs) {
+#if defined(__cpp_impl_three_way_comparison) && \
+    defined(__cpp_lib_three_way_comparison)
+  return lhs <=> rhs;
+#else
+  if (lhs < rhs) {
+    return absl::strong_ordering::less;
+  }
+  if (rhs < lhs) {
+    return absl::strong_ordering::greater;
+  }
+  return absl::strong_ordering::equal;
+#endif
+}
+
+struct AttributeQualifierCompare {
+  // monostate < int < uint < string < bool < wildcard
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(
+      const std::monostate&, const std::monostate&) const {
+    return absl::strong_ordering::equal;
   }
 
   template <typename T>
-  std::enable_if_t<!std::is_same_v<absl::remove_cvref_t<T>, std::monostate>,
-                   bool>
-  operator()(const std::monostate&, const T&) const {
-    return true;
+  ABSL_ATTRIBUTE_ALWAYS_INLINE
+      std::enable_if_t<!std::is_same_v<absl::remove_cvref_t<T>, std::monostate>,
+                       absl::strong_ordering>
+      operator()(const std::monostate&, const T&) const {
+    return absl::strong_ordering::less;
   }
 
   template <typename T>
-  std::enable_if_t<!std::is_same_v<absl::remove_cvref_t<T>, std::monostate>,
-                   bool>
-  operator()(const T&, const std::monostate&) const {
-    return false;
+  ABSL_ATTRIBUTE_ALWAYS_INLINE
+      std::enable_if_t<!std::is_same_v<absl::remove_cvref_t<T>, std::monostate>,
+                       absl::strong_ordering>
+      operator()(const T&, const std::monostate&) const {
+    return absl::strong_ordering::greater;
   }
 
-  bool operator()(bool lhs, bool rhs) const { return lhs < rhs; }
-
-  bool operator()(bool, int64_t) const { return false; }
-
-  bool operator()(bool, uint64_t) const { return false; }
-
-  bool operator()(bool, absl::string_view) const { return false; }
-
-  bool operator()(int64_t, bool) const { return true; }
-
-  bool operator()(int64_t lhs, int64_t rhs) const { return lhs < rhs; }
-
-  bool operator()(int64_t, uint64_t) const { return true; }
-
-  bool operator()(int64_t, absl::string_view) const { return true; }
-
-  bool operator()(uint64_t, bool) const { return true; }
-
-  bool operator()(uint64_t, int64_t) const { return false; }
-
-  bool operator()(uint64_t lhs, uint64_t rhs) const { return lhs < rhs; }
-
-  bool operator()(uint64_t, absl::string_view) const { return true; }
-
-  bool operator()(absl::string_view, bool) const { return true; }
-
-  bool operator()(absl::string_view, int64_t) const { return false; }
-
-  bool operator()(absl::string_view, uint64_t) const { return false; }
-
-  bool operator()(absl::string_view lhs, absl::string_view rhs) const {
-    return lhs < rhs;
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(
+      bool lhs, bool rhs) const {
+    return (SynthesizeCompare)(lhs, rhs);
   }
 
-  bool operator()(const common_internal::WildcardType&,
-                  const common_internal::WildcardType&) const {
-    return false;
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(bool,
+                                                                int64_t) const {
+    return absl::strong_ordering::greater;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(
+      bool, uint64_t) const {
+    return absl::strong_ordering::greater;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(
+      bool, absl::string_view) const {
+    return absl::strong_ordering::greater;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(int64_t,
+                                                                bool) const {
+    return absl::strong_ordering::less;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(
+      int64_t lhs, int64_t rhs) const {
+    return (SynthesizeCompare)(lhs, rhs);
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(
+      int64_t, uint64_t) const {
+    return absl::strong_ordering::less;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(
+      int64_t, absl::string_view) const {
+    return absl::strong_ordering::less;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(uint64_t,
+                                                                bool) const {
+    return absl::strong_ordering::less;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(uint64_t,
+                                                                int64_t) const {
+    return absl::strong_ordering::greater;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(
+      uint64_t lhs, uint64_t rhs) const {
+    return (SynthesizeCompare)(lhs, rhs);
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(
+      uint64_t, absl::string_view) const {
+    return absl::strong_ordering::less;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(
+      absl::string_view, bool) const {
+    return absl::strong_ordering::less;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(
+      absl::string_view, int64_t) const {
+    return absl::strong_ordering::greater;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(
+      absl::string_view, uint64_t) const {
+    return absl::strong_ordering::greater;
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(
+      absl::string_view lhs, absl::string_view rhs) const {
+    return (SynthesizeCompare)(lhs, rhs);
+  }
+
+  ABSL_ATTRIBUTE_ALWAYS_INLINE absl::strong_ordering operator()(
+      const common_internal::WildcardType&,
+      const common_internal::WildcardType&) const {
+    return absl::strong_ordering::equal;
   }
 
   template <typename T>
-  std::enable_if_t<
+  ABSL_ATTRIBUTE_ALWAYS_INLINE std::enable_if_t<
       !std::is_same_v<absl::remove_cvref_t<T>, common_internal::WildcardType> &&
           !std::is_same_v<absl::remove_cvref_t<T>, std::monostate>,
-      bool>
+      absl::strong_ordering>
   operator()(const common_internal::WildcardType&, const T&) const {
-    return false;
+    return absl::strong_ordering::greater;
   }
 
   template <typename T>
-  std::enable_if_t<
+  ABSL_ATTRIBUTE_ALWAYS_INLINE std::enable_if_t<
       !std::is_same_v<absl::remove_cvref_t<T>, common_internal::WildcardType> &&
           !std::is_same_v<absl::remove_cvref_t<T>, std::monostate>,
-      bool>
+      absl::strong_ordering>
   operator()(const T&, const common_internal::WildcardType&) const {
-    return true;
+    return absl::strong_ordering::less;
   }
 };
 
 }  // namespace
+
+absl::strong_ordering AttributeQualifier::Compare(
+    const AttributeQualifier& other) const {
+  return std::visit(AttributeQualifierCompare{},
+                    common_internal::AsVariant(*this),
+                    common_internal::AsVariant(other));
+}
+
+absl::strong_ordering AttributeQualifier::Compare(
+    const AttributeQualifierView& other) const {
+  return std::visit(AttributeQualifierCompare{},
+                    common_internal::AsVariant(*this),
+                    common_internal::AsVariant(other));
+}
+
+absl::strong_ordering AttributeQualifier::Compare(
+    const AttributeQualifierPattern& other) const {
+  return std::visit(AttributeQualifierCompare{},
+                    common_internal::AsVariant(*this),
+                    common_internal::AsVariant(other));
+}
+
+absl::strong_ordering AttributeQualifierView::Compare(
+    const AttributeQualifier& other) const {
+  return std::visit(AttributeQualifierCompare{},
+                    common_internal::AsVariant(*this),
+                    common_internal::AsVariant(other));
+}
+
+absl::strong_ordering AttributeQualifierView::Compare(
+    const AttributeQualifierView& other) const {
+  return std::visit(AttributeQualifierCompare{},
+                    common_internal::AsVariant(*this),
+                    common_internal::AsVariant(other));
+}
+
+absl::strong_ordering AttributeQualifierView::Compare(
+    const AttributeQualifierPattern& other) const {
+  return std::visit(AttributeQualifierCompare{},
+                    common_internal::AsVariant(*this),
+                    common_internal::AsVariant(other));
+}
+
+absl::strong_ordering AttributeQualifierPattern::Compare(
+    const AttributeQualifier& other) const {
+  return std::visit(AttributeQualifierCompare{},
+                    common_internal::AsVariant(*this),
+                    common_internal::AsVariant(other));
+}
+
+absl::strong_ordering AttributeQualifierPattern::Compare(
+    const AttributeQualifierView& other) const {
+  return std::visit(AttributeQualifierCompare{},
+                    common_internal::AsVariant(*this),
+                    common_internal::AsVariant(other));
+}
+
+absl::strong_ordering AttributeQualifierPattern::Compare(
+    const AttributeQualifierPattern& other) const {
+  return std::visit(AttributeQualifierCompare{},
+                    common_internal::AsVariant(*this),
+                    common_internal::AsVariant(other));
+}
+
+absl::strong_ordering Attribute::Compare(const Attribute& other) const {
+  if (absl::strong_ordering order =
+          (SynthesizeCompare)(variable_name(), other.variable_name());
+      order != absl::strong_ordering::equal) {
+    return order;
+  }
+  const auto& qualifiers = qualifier_path();
+  const auto& other_qualifiers = other.qualifier_path();
+  const size_t min_size = std::min(qualifiers.size(), other_qualifiers.size());
+  for (size_t i = 0; i < min_size; ++i) {
+    if (absl::strong_ordering order =
+            qualifiers[i].Compare(other_qualifiers[i]);
+        order != absl::strong_ordering::equal) {
+      return order;
+    }
+  }
+  if (qualifiers.size() < other_qualifiers.size()) {
+    return absl::strong_ordering::less;
+  }
+  if (qualifiers.size() > other_qualifiers.size()) {
+    return absl::strong_ordering::greater;
+  }
+  return absl::strong_ordering::equal;
+}
 
 bool operator==(const AttributeQualifier& lhs, const AttributeQualifier& rhs) {
   return std::visit(AttributeQualifierEqualTo{},
@@ -585,57 +731,9 @@ bool operator==(const AttributeQualifierPattern& lhs,
                     common_internal::AsVariant(rhs));
 }
 
-bool operator<(const AttributeQualifier& lhs, const AttributeQualifier& rhs) {
-  return std::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
-                    common_internal::AsVariant(rhs));
-}
-
-bool operator<(const AttributeQualifierView& lhs,
-               const AttributeQualifierView& rhs) {
-  return std::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
-                    common_internal::AsVariant(rhs));
-}
-
-bool operator<(const AttributeQualifierPattern& lhs,
-               const AttributeQualifierPattern& rhs) {
-  return std::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
-                    common_internal::AsVariant(rhs));
-}
-
-bool operator<(const AttributeQualifier& lhs,
-               const AttributeQualifierView& rhs) {
-  return std::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
-                    common_internal::AsVariant(rhs));
-}
-
-bool operator<(const AttributeQualifier& lhs,
-               const AttributeQualifierPattern& rhs) {
-  return std::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
-                    common_internal::AsVariant(rhs));
-}
-
-bool operator<(const AttributeQualifierView& lhs,
-               const AttributeQualifier& rhs) {
-  return std::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
-                    common_internal::AsVariant(rhs));
-}
-
-bool operator<(const AttributeQualifierView& lhs,
-               const AttributeQualifierPattern& rhs) {
-  return std::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
-                    common_internal::AsVariant(rhs));
-}
-
-bool operator<(const AttributeQualifierPattern& lhs,
-               const AttributeQualifier& rhs) {
-  return std::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
-                    common_internal::AsVariant(rhs));
-}
-
-bool operator<(const AttributeQualifierPattern& lhs,
-               const AttributeQualifierView& rhs) {
-  return std::visit(AttributeQualifierLess{}, common_internal::AsVariant(lhs),
-                    common_internal::AsVariant(rhs));
+bool operator==(const Attribute& lhs, const Attribute& rhs) {
+  return lhs.variable_name() == rhs.variable_name() &&
+         absl::c_equal(lhs.qualifier_path(), rhs.qualifier_path());
 }
 
 bool operator==(const AttributePattern& lhs, const AttributePattern& rhs) {

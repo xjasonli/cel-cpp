@@ -32,6 +32,7 @@
 #include "absl/log/absl_check.h"
 #include "absl/status/statusor.h"
 #include "absl/strings/string_view.h"
+#include "absl/types/compare.h"
 #include "absl/types/optional_ref.h"
 #include "absl/types/span.h"
 #include "base/kind.h"
@@ -245,6 +246,15 @@ class AttributeQualifier {
   [[nodiscard]]
   bool IsMatch(absl::string_view other_key) const;
 
+  [[nodiscard]]
+  absl::strong_ordering Compare(const AttributeQualifier& other) const;
+
+  [[nodiscard]]
+  absl::strong_ordering Compare(const AttributeQualifierView& other) const;
+
+  [[nodiscard]]
+  absl::strong_ordering Compare(const AttributeQualifierPattern& other) const;
+
  private:
   friend const common_internal::AttributeQualifierVariant&
   common_internal::AsVariant(const AttributeQualifier& qualifier);
@@ -440,6 +450,15 @@ class AttributeQualifierView {
   static void AppendJoinString(
       std::string* absl_nonnull out,
       absl::Span<const AttributeQualifierView> qualifiers);
+
+  [[nodiscard]]
+  absl::strong_ordering Compare(const AttributeQualifier& other) const;
+
+  [[nodiscard]]
+  absl::strong_ordering Compare(const AttributeQualifierView& other) const;
+
+  [[nodiscard]]
+  absl::strong_ordering Compare(const AttributeQualifierPattern& other) const;
 
  private:
   friend const common_internal::AttributeQualifierViewVariant&
@@ -729,6 +748,15 @@ class AttributeQualifierPattern {
   [[nodiscard]]
   bool IsMatch(absl::string_view other_key) const;
 
+  [[nodiscard]]
+  absl::strong_ordering Compare(const AttributeQualifier& other) const;
+
+  [[nodiscard]]
+  absl::strong_ordering Compare(const AttributeQualifierView& other) const;
+
+  [[nodiscard]]
+  absl::strong_ordering Compare(const AttributeQualifierPattern& other) const;
+
  private:
   friend const common_internal::AttributeQualifierPatternVariant&
   common_internal::AsVariant(const AttributeQualifierPattern& qualifier);
@@ -782,6 +810,62 @@ bool operator==(const AttributeQualifierPattern& lhs,
 bool operator==(const AttributeQualifierPattern& lhs,
                 const AttributeQualifierView& rhs);
 
+#if defined(__cpp_impl_three_way_comparison) && \
+    defined(__cpp_lib_three_way_comparison)
+[[nodiscard]]
+inline absl::strong_ordering operator<=>(const AttributeQualifier& lhs,
+                                         const AttributeQualifier& rhs) {
+  return lhs.Compare(rhs);
+}
+
+[[nodiscard]]
+inline absl::strong_ordering operator<=>(const AttributeQualifier& lhs,
+                                         const AttributeQualifierView& rhs) {
+  return lhs.Compare(rhs);
+}
+
+[[nodiscard]]
+inline absl::strong_ordering operator<=>(const AttributeQualifier& lhs,
+                                         const AttributeQualifierPattern& rhs) {
+  return lhs.Compare(rhs);
+}
+
+[[nodiscard]]
+inline absl::strong_ordering operator<=>(const AttributeQualifierView& lhs,
+                                         const AttributeQualifier& rhs) {
+  return lhs.Compare(rhs);
+}
+
+[[nodiscard]]
+inline absl::strong_ordering operator<=>(const AttributeQualifierView& lhs,
+                                         const AttributeQualifierView& rhs) {
+  return lhs.Compare(rhs);
+}
+
+[[nodiscard]]
+inline absl::strong_ordering operator<=>(const AttributeQualifierView& lhs,
+                                         const AttributeQualifierPattern& rhs) {
+  return lhs.Compare(rhs);
+}
+
+[[nodiscard]]
+inline absl::strong_ordering operator<=>(const AttributeQualifierPattern& lhs,
+                                         const AttributeQualifier& rhs) {
+  return lhs.Compare(rhs);
+}
+
+[[nodiscard]]
+inline absl::strong_ordering operator<=>(const AttributeQualifierPattern& lhs,
+                                         const AttributeQualifierView& rhs) {
+  return lhs.Compare(rhs);
+}
+
+[[nodiscard]]
+inline absl::strong_ordering operator<=>(const AttributeQualifierPattern& lhs,
+                                         const AttributeQualifierPattern& rhs) {
+  return lhs.Compare(rhs);
+}
+#else
 [[nodiscard]]
 inline bool operator!=(const AttributeQualifier& lhs,
                        const AttributeQualifier& rhs) {
@@ -837,39 +921,59 @@ inline bool operator!=(const AttributeQualifierPattern& lhs,
 }
 
 [[nodiscard]]
-bool operator<(const AttributeQualifier& lhs, const AttributeQualifier& rhs);
+inline bool operator<(const AttributeQualifier& lhs,
+                      const AttributeQualifier& rhs) {
+  return lhs.Compare(rhs) < 0;
+}
 
 [[nodiscard]]
-bool operator<(const AttributeQualifierView& lhs,
-               const AttributeQualifierView& rhs);
+inline bool operator<(const AttributeQualifierView& lhs,
+                      const AttributeQualifierView& rhs) {
+  return lhs.Compare(rhs) < 0;
+}
 
 [[nodiscard]]
-bool operator<(const AttributeQualifierPattern& lhs,
-               const AttributeQualifierPattern& rhs);
+inline bool operator<(const AttributeQualifierPattern& lhs,
+                      const AttributeQualifierPattern& rhs) {
+  return lhs.Compare(rhs) < 0;
+}
 
 [[nodiscard]]
-bool operator<(const AttributeQualifier& lhs,
-               const AttributeQualifierView& rhs);
+inline bool operator<(const AttributeQualifier& lhs,
+                      const AttributeQualifierView& rhs) {
+  return lhs.Compare(rhs) < 0;
+}
 
 [[nodiscard]]
-bool operator<(const AttributeQualifier& lhs,
-               const AttributeQualifierPattern& rhs);
+inline bool operator<(const AttributeQualifier& lhs,
+                      const AttributeQualifierPattern& rhs) {
+  return lhs.Compare(rhs) < 0;
+}
 
 [[nodiscard]]
-bool operator<(const AttributeQualifierView& lhs,
-               const AttributeQualifier& rhs);
+inline bool operator<(const AttributeQualifierView& lhs,
+                      const AttributeQualifier& rhs) {
+  return lhs.Compare(rhs) < 0;
+}
 
 [[nodiscard]]
-bool operator<(const AttributeQualifierView& lhs,
-               const AttributeQualifierPattern& rhs);
+inline bool operator<(const AttributeQualifierView& lhs,
+                      const AttributeQualifierPattern& rhs) {
+  return lhs.Compare(rhs) < 0;
+}
 
 [[nodiscard]]
-bool operator<(const AttributeQualifierPattern& lhs,
-               const AttributeQualifier& rhs);
+inline bool operator<(const AttributeQualifierPattern& lhs,
+                      const AttributeQualifier& rhs) {
+  return lhs.Compare(rhs) < 0;
+}
 
 [[nodiscard]]
-bool operator<(const AttributeQualifierPattern& lhs,
-               const AttributeQualifierView& rhs);
+inline bool operator<(const AttributeQualifierPattern& lhs,
+                      const AttributeQualifierView& rhs) {
+  return lhs.Compare(rhs) < 0;
+}
+#endif
 
 namespace common_internal {
 
@@ -930,14 +1034,13 @@ class Attribute {
     return impl_->qualifier_path;
   }
 
-  bool operator==(const Attribute& other) const;
-
-  bool operator<(const Attribute& other) const;
-
   absl::StatusOr<std::string> AsString() const;
 
   [[nodiscard]]
   std::string ToString() const;
+
+  [[nodiscard]]
+  absl::strong_ordering Compare(const Attribute& other) const;
 
  private:
   struct Impl final {
@@ -952,6 +1055,28 @@ class Attribute {
 
   std::shared_ptr<const Impl> impl_;
 };
+
+[[nodiscard]]
+bool operator==(const Attribute& lhs, const Attribute& rhs);
+
+#if defined(__cpp_impl_three_way_comparison) && \
+    defined(__cpp_lib_three_way_comparison)
+[[nodiscard]]
+inline absl::strong_ordering operator<=>(const Attribute& lhs,
+                                         const Attribute& rhs) {
+  return lhs.Compare(rhs);
+}
+#else
+[[nodiscard]]
+inline bool operator!=(const Attribute& lhs, const Attribute& rhs) {
+  return !operator==(lhs, rhs);
+}
+
+[[nodiscard]]
+inline bool operator<(const Attribute& lhs, const Attribute& rhs) {
+  return lhs.Compare(rhs) < 0;
+}
+#endif
 
 template <typename S>
 void AbslStringify(S& sink, const Attribute& attribute) {
