@@ -36,7 +36,6 @@
 #include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "common/allocator.h"
-#include "common/arena.h"
 #include "common/legacy_value.h"
 #include "common/native_type.h"
 #include "common/type.h"
@@ -206,12 +205,6 @@ class ListValueBuilderImpl final : public ListValueBuilder {
     elements_.Construct(arena);
   }
 
-  ~ListValueBuilderImpl() override {
-    if (!elements_trivially_destructible_) {
-      elements_.Destruct();
-    }
-  }
-
   absl::Status Add(Value value) override {
     CEL_RETURN_IF_ERROR(CheckListElement(value));
     UnsafeAdd(std::move(value));
@@ -221,10 +214,6 @@ class ListValueBuilderImpl final : public ListValueBuilder {
   void UnsafeAdd(Value value) override {
     ABSL_DCHECK_OK(CheckListElement(value));
     elements_->emplace_back(std::move(value));
-    if (elements_trivially_destructible_) {
-      elements_trivially_destructible_ =
-          ArenaTraits<>::trivially_destructible(elements_->back());
-    }
   }
 
   size_t Size() const override { return elements_->size(); }
@@ -243,7 +232,6 @@ class ListValueBuilderImpl final : public ListValueBuilder {
  private:
   google::protobuf::Arena* absl_nonnull const arena_;
   internal::Manual<ValueVector> elements_;
-  bool elements_trivially_destructible_ = true;
 };
 
 class CompatListValueImpl final : public CompatListValue {
@@ -341,19 +329,6 @@ class CompatListValueImpl final : public CompatListValue {
   const ValueVector elements_;
 };
 
-}  // namespace
-
-}  // namespace common_internal
-
-template <>
-struct ArenaTraits<common_internal::CompatListValueImpl> {
-  using always_trivially_destructible = std::true_type;
-};
-
-namespace common_internal {
-
-namespace {
-
 ListValue ListValueBuilderImpl::Build() && {
   if (elements_->empty()) {
     return ListValue();
@@ -380,10 +355,6 @@ const CompatListValue* absl_nonnull ListValueBuilderImpl::BuildCompatAt(
     void* absl_nonnull address) && {
   CompatListValueImpl* absl_nonnull impl =
       ::new (address) CompatListValueImpl(std::move(*elements_));
-  if (!elements_trivially_destructible_) {
-    arena_->OwnDestructor(impl);
-    elements_trivially_destructible_ = true;
-  }
   return impl;
 }
 
@@ -466,14 +437,6 @@ class MutableCompatListValueImpl final : public MutableCompatListValue {
   absl::Status Append(Value value) const override {
     CEL_RETURN_IF_ERROR(CheckListElement(value));
     elements_.emplace_back(std::move(value));
-    if (elements_trivially_destructible_) {
-      elements_trivially_destructible_ =
-          ArenaTraits<>::trivially_destructible(elements_.back());
-      if (!elements_trivially_destructible_) {
-        elements_.get_allocator().arena()->OwnDestructor(
-            const_cast<MutableCompatListValueImpl*>(this));
-      }
-    }
     return absl::OkStatus();
   }
 
@@ -495,23 +458,9 @@ class MutableCompatListValueImpl final : public MutableCompatListValue {
 
  private:
   mutable ValueVector elements_;
-  mutable bool elements_trivially_destructible_ = true;
 };
 
 }  // namespace
-
-}  // namespace common_internal
-
-template <>
-struct ArenaTraits<common_internal::MutableCompatListValueImpl> {
-  using constructible = std::true_type;
-
-  using always_trivially_destructible = std::true_type;
-};
-
-namespace common_internal {
-
-namespace {}  // namespace
 
 absl::StatusOr<const CompatListValue* absl_nonnull> MakeCompatListValue(
     const CustomListValue& value,
@@ -957,12 +906,6 @@ class MapValueBuilderImpl final : public MapValueBuilder {
     map_.Construct(arena_);
   }
 
-  ~MapValueBuilderImpl() override {
-    if (!entries_trivially_destructible_) {
-      map_.Destruct();
-    }
-  }
-
   absl::Status Put(Value key, Value value) override {
     CEL_RETURN_IF_ERROR(CheckMapKey(key));
     CEL_RETURN_IF_ERROR(CheckMapValue(value));
@@ -976,11 +919,6 @@ class MapValueBuilderImpl final : public MapValueBuilder {
   void UnsafePut(Value key, Value value) override {
     auto insertion = map_->insert({std::move(key), std::move(value)});
     ABSL_DCHECK(insertion.second);
-    if (entries_trivially_destructible_) {
-      entries_trivially_destructible_ =
-          ArenaTraits<>::trivially_destructible(insertion.first->first) &&
-          ArenaTraits<>::trivially_destructible(insertion.first->second);
-    }
   }
 
   size_t Size() const override { return map_->size(); }
@@ -996,7 +934,6 @@ class MapValueBuilderImpl final : public MapValueBuilder {
  private:
   google::protobuf::Arena* absl_nonnull const arena_;
   internal::Manual<ValueFlatHashMap> map_;
-  bool entries_trivially_destructible_ = true;
 };
 
 class CompatMapValueImpl final : public CompatMapValue {
@@ -1159,16 +1096,12 @@ const CompatMapValue* absl_nonnull MapValueBuilderImpl::BuildCompat() && {
   CompatMapValueImpl* absl_nonnull impl = ::new (arena_->AllocateAligned(
       sizeof(CompatMapValueImpl), alignof(CompatMapValueImpl)))
       CompatMapValueImpl(std::move(*map_));
-  if (!entries_trivially_destructible_) {
-    arena_->OwnDestructor(impl);
-    entries_trivially_destructible_ = true;
-  }
   return impl;
 }
 
-class TrivialMutableMapValueImpl final : public MutableCompatMapValue {
+class MutableCompatMapValueImpl final : public MutableCompatMapValue {
  public:
-  explicit TrivialMutableMapValueImpl(google::protobuf::Arena* absl_nonnull arena)
+  explicit MutableCompatMapValueImpl(google::protobuf::Arena* absl_nonnull arena)
       : map_(arena) {}
 
   google::protobuf::Arena* GetOwningArena() const override {
@@ -1269,15 +1202,6 @@ class TrivialMutableMapValueImpl final : public MutableCompatMapValue {
     }
     auto insertion = map_.insert({std::move(key), std::move(value)});
     ABSL_DCHECK(insertion.second);
-    if (entries_trivially_destructible_) {
-      entries_trivially_destructible_ =
-          ArenaTraits<>::trivially_destructible(insertion.first->first) &&
-          ArenaTraits<>::trivially_destructible(insertion.first->second);
-      if (!entries_trivially_destructible_) {
-        map_.get_allocator().arena()->OwnDestructor(
-            const_cast<TrivialMutableMapValueImpl*>(this));
-      }
-    }
     return absl::OkStatus();
   }
 
@@ -1324,7 +1248,6 @@ class TrivialMutableMapValueImpl final : public MutableCompatMapValue {
   }
 
   mutable ValueFlatHashMap map_;
-  mutable bool entries_trivially_destructible_ = true;
   mutable absl::once_flag keys_once_;
   alignas(CompatListValueImpl) mutable char keys_[sizeof(CompatListValueImpl)];
 };
@@ -1351,9 +1274,9 @@ absl::StatusOr<const CompatMapValue* absl_nonnull> MakeCompatMapValue(
 
 MutableMapValue* absl_nonnull NewMutableMapValue(
     google::protobuf::Arena* absl_nonnull arena) {
-  return ::new (arena->AllocateAligned(sizeof(TrivialMutableMapValueImpl),
-                                       alignof(TrivialMutableMapValueImpl)))
-      TrivialMutableMapValueImpl(arena);
+  return ::new (arena->AllocateAligned(sizeof(MutableCompatMapValueImpl),
+                                       alignof(MutableCompatMapValueImpl)))
+      MutableCompatMapValueImpl(arena);
 }
 
 bool IsMutableMapValue(const Value& value) {
