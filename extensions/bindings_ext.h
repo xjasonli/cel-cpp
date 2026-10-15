@@ -22,6 +22,7 @@
 #include "parser/macro.h"
 #include "parser/macro_registry.h"
 #include "parser/options.h"
+#include "parser/parser_interface.h"
 
 namespace cel::extensions {
 
@@ -40,6 +41,9 @@ CompilerLibrary BindingsCompilerLibrary(int version = kBindingsVersionLatest);
 
 // Declarations for the bindings extension library.
 CheckerLibrary BindingsCheckerLibrary(int version = kBindingsVersionLatest);
+
+// Macros for the bindings extension library.
+ParserLibrary BindingsParserLibrary();
 
 }  // namespace cel::extensions
 

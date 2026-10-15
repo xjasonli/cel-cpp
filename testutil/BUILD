@@ -42,6 +42,7 @@ cc_library(
         "//parser:macro",
         "//parser:macro_expr_factory",
         "//parser:macro_registry",
+        "//parser:parser_interface",
         "@com_google_absl//absl/base:no_destructor",
         "@com_google_absl//absl/log:absl_check",
         "@com_google_absl//absl/status",

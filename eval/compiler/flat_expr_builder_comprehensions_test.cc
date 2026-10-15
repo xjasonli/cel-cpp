@@ -14,15 +14,22 @@
  * limitations under the License.
  */
 
+#include <memory>
+#include <utility>
 #include <vector>
 
 #include "cel/expr/syntax.pb.h"
 #include "google/protobuf/field_mask.pb.h"
 #include "absl/status/status.h"
 #include "absl/strings/string_view.h"
+#include "base/ast.h"
+#include "common/source.h"
+#include "common/value.h"
+#include "common/value_testing.h"
 #include "eval/compiler/cel_expression_builder_flat_impl.h"
 #include "eval/compiler/comprehension_vulnerability_check.h"
 #include "eval/compiler/flat_expr_builder.h"
+#include "eval/eval/evaluator_core.h"
 #include "eval/public/activation.h"
 #include "eval/public/builtin_func_registrar.h"
 #include "eval/public/cel_attribute.h"
@@ -32,10 +39,15 @@
 #include "eval/public/containers/container_backed_list_impl.h"
 #include "eval/public/testing/matchers.h"
 #include "eval/testutil/test_message.pb.h"
+#include "extensions/bindings_ext.h"
 #include "internal/testing.h"
 #include "parser/parser.h"
+#include "parser/parser_interface.h"
+#include "runtime/activation.h"
+#include "runtime/internal/runtime_env.h"
 #include "runtime/internal/runtime_env_testing.h"
 #include "runtime/runtime_options.h"
+#include "testutil/test_macros.h"
 #include "google/protobuf/arena.h"
 #include "google/protobuf/text_format.h"
 
@@ -621,6 +633,119 @@ TEST_F(CelExpressionBuilderFlatImplComprehensionsTest,
       StatusIs(
           absl::StatusCode::kInvalidArgument,
           HasSubstr("Unexpected iter_var access in trivial comprehension")));
+}
+
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest,
+       BindInsideComprehensionWithComprehensionInInitIterStackCount) {
+  std::unique_ptr<cel::ParserBuilder> parser_builder = cel::NewParserBuilder();
+  ASSERT_THAT(
+      parser_builder->AddLibrary(cel::extensions::BindingsParserLibrary()),
+      IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Parser> parser,
+                       parser_builder->Build());
+
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<cel::Source> source,
+      parser->PrepareSource(
+          "[[1, 2], [3, 4]].map(l, cel.bind(filtered, l.filter(x, x > 1), "
+          "size(filtered) > 0 ? filtered[0] : 0)) == [2, 3]"));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast, parser->Parse(*source));
+
+  cel::RuntimeOptions options = GetRuntimeOptions();
+  std::shared_ptr<cel::runtime_internal::RuntimeEnv> env =
+      NewTestingRuntimeEnv();
+  CelExpressionBuilderFlatImpl builder(env, options);
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+
+  ASSERT_OK_AND_ASSIGN(
+      FlatExpression flat_expr,
+      builder.flat_expr_builder().CreateExpressionImpl(std::move(ast),
+                                                       /*issues=*/nullptr));
+  EXPECT_EQ(flat_expr.iterator_stack_size(), 2);
+
+  cel::Activation activation;
+  google::protobuf::Arena arena;
+  FlatExpressionEvaluatorState state = flat_expr.MakeEvaluatorState(
+      env->descriptor_pool.get(), env->MutableMessageFactory(), &arena);
+  ASSERT_OK_AND_ASSIGN(
+      cel::Value result,
+      flat_expr.EvaluateWithCallback(activation, /*embedder_context=*/nullptr,
+                                     EvaluationListener(), state));
+  EXPECT_THAT(result, cel::test::BoolValueIs(true));
+}
+
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest,
+       BlockWithComprehensionInBindingAndBodyIterStackCount) {
+  std::unique_ptr<cel::ParserBuilder> parser_builder = cel::NewParserBuilder();
+  ASSERT_THAT(parser_builder->AddLibrary(cel::test::TestMacrosParserLibrary()),
+              IsOk());
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Parser> parser,
+                       parser_builder->Build());
+
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<cel::Source> source,
+      parser->PrepareSource(
+          "cel.block([[1, 2, 3].filter(x, x > 1), [1, 2, 3].filter(x, x < 3)], "
+          "[1, 2].map(y, y in cel.index(0) || y in cel.index(1))) == [true, "
+          "true]"));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast, parser->Parse(*source));
+
+  cel::RuntimeOptions options = GetRuntimeOptions();
+  std::shared_ptr<cel::runtime_internal::RuntimeEnv> env =
+      NewTestingRuntimeEnv();
+  CelExpressionBuilderFlatImpl builder(env, options);
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+
+  ASSERT_OK_AND_ASSIGN(
+      FlatExpression flat_expr,
+      builder.flat_expr_builder().CreateExpressionImpl(std::move(ast),
+                                                       /*issues=*/nullptr));
+  EXPECT_EQ(flat_expr.iterator_stack_size(), 3);
+
+  cel::Activation activation;
+  google::protobuf::Arena arena;
+  FlatExpressionEvaluatorState state = flat_expr.MakeEvaluatorState(
+      env->descriptor_pool.get(), env->MutableMessageFactory(), &arena);
+  ASSERT_OK_AND_ASSIGN(
+      cel::Value result,
+      flat_expr.EvaluateWithCallback(activation, /*embedder_context=*/nullptr,
+                                     EvaluationListener(), state));
+  EXPECT_THAT(result, cel::test::BoolValueIs(true));
+}
+
+TEST_F(CelExpressionBuilderFlatImplComprehensionsTest,
+       NonNestedComprehensionsIterStackCount) {
+  std::unique_ptr<cel::ParserBuilder> parser_builder = cel::NewParserBuilder();
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Parser> parser,
+                       parser_builder->Build());
+
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<cel::Source> source,
+      parser->PrepareSource(
+          "[1, 2].map(x, x + 1) + [3, 4].filter(y, y > 3) == [2, 3, 4]"));
+  ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast, parser->Parse(*source));
+
+  cel::RuntimeOptions options = GetRuntimeOptions();
+  std::shared_ptr<cel::runtime_internal::RuntimeEnv> env =
+      NewTestingRuntimeEnv();
+  CelExpressionBuilderFlatImpl builder(env, options);
+  ASSERT_THAT(RegisterBuiltinFunctions(builder.GetRegistry()), IsOk());
+
+  ASSERT_OK_AND_ASSIGN(
+      FlatExpression flat_expr,
+      builder.flat_expr_builder().CreateExpressionImpl(std::move(ast),
+                                                       /*issues=*/nullptr));
+  EXPECT_EQ(flat_expr.iterator_stack_size(), 1);
+
+  cel::Activation activation;
+  google::protobuf::Arena arena;
+  FlatExpressionEvaluatorState state = flat_expr.MakeEvaluatorState(
+      env->descriptor_pool.get(), env->MutableMessageFactory(), &arena);
+  ASSERT_OK_AND_ASSIGN(
+      cel::Value result,
+      flat_expr.EvaluateWithCallback(activation, /*embedder_context=*/nullptr,
+                                     EvaluationListener(), state));
+  EXPECT_THAT(result, cel::test::BoolValueIs(true));
 }
 
 }  // namespace

@@ -15,19 +15,20 @@
 #include "testutil/test_macros.h"
 
 #include <cstdint>
+#include <optional>
 #include <utility>
 
 #include "absl/base/no_destructor.h"
 #include "absl/log/absl_check.h"
 #include "absl/status/status.h"
 #include "absl/strings/str_cat.h"
-#include "absl/types/optional.h"
 #include "absl/types/span.h"
 #include "common/expr.h"
 #include "internal/status_macros.h"
 #include "parser/macro.h"
 #include "parser/macro_expr_factory.h"
 #include "parser/macro_registry.h"
+#include "parser/parser_interface.h"
 
 namespace cel::test {
 
@@ -168,6 +169,19 @@ absl::Status RegisterTestMacros(MacroRegistry& registry) {
   CEL_RETURN_IF_ERROR(registry.RegisterMacro(CelIterVarMacro()));
   CEL_RETURN_IF_ERROR(registry.RegisterMacro(CelAccuVarMacro()));
   return absl::OkStatus();
+}
+
+ParserLibrary TestMacrosParserLibrary() {
+  return ParserLibrary{
+      "cel.test.test_macros",
+      [](ParserBuilder& builder) -> absl::Status {
+        CEL_RETURN_IF_ERROR(builder.AddMacro(CelBlockMacro()));
+        CEL_RETURN_IF_ERROR(builder.AddMacro(CelIndexMacro()));
+        CEL_RETURN_IF_ERROR(builder.AddMacro(CelIterVarMacro()));
+        CEL_RETURN_IF_ERROR(builder.AddMacro(CelAccuVarMacro()));
+        return absl::OkStatus();
+      },
+  };
 }
 
 }  // namespace cel::test

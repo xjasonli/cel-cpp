@@ -18,6 +18,7 @@
 #include "absl/status/status.h"
 #include "parser/macro.h"
 #include "parser/macro_registry.h"
+#include "parser/parser_interface.h"
 
 namespace cel::test {
 
@@ -27,6 +28,8 @@ const Macro& CelIterVarMacro();
 const Macro& CelAccuVarMacro();
 
 absl::Status RegisterTestMacros(MacroRegistry& registry);
+
+ParserLibrary TestMacrosParserLibrary();
 
 }  // namespace cel::test
 

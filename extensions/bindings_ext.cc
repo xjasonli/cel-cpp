@@ -100,4 +100,8 @@ CheckerLibrary BindingsCheckerLibrary(int version) {
                         }};
 }
 
+ParserLibrary BindingsParserLibrary() {
+  return ParserLibrary{"cel.lib.ext.bindings", &ConfigureParser};
+}
+
 }  // namespace cel::extensions
