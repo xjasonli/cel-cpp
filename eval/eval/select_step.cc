@@ -13,7 +13,6 @@
 #include "absl/strings/string_view.h"
 #include "absl/types/optional.h"
 #include "common/legacy_value.h"
-#include "common/memory.h"
 #include "common/type.h"
 #include "common/value.h"
 #include "common/value_kind.h"
@@ -21,8 +20,6 @@
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
 #include "eval/eval/expression_step_logic.h"
-#include "eval/public/cel_value.h"
-#include "eval/public/structs/proto_message_type_adapter.h"
 #include "internal/status_macros.h"
 #include "runtime/runtime_options.h"
 #include "google/protobuf/arena.h"
@@ -77,34 +74,6 @@ absl::optional<Value> CheckForMarkedAttributes(const AttributeTrail& trail,
   return std::nullopt;
 }
 
-// Helper for StructValue::GetFieldByName. Used for opting out of old reflection
-// implementation.
-absl::Status WrappedStructGet(
-    const Value& target, absl::string_view field,
-    ProtoWrapperTypeOptions unboxing_option,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena,
-    bool enable_use_new_field_select_implementation,
-    Value* absl_nonnull result) {
-  if (!enable_use_new_field_select_implementation) {
-    if (const google::protobuf::Message* message =
-            cel::interop_internal::GetLegacyMessage(target);
-        message != nullptr) {
-      CelValue::MessageWrapper message_wrapper(
-          message, &GetGenericProtoTypeInfoInstance());
-      CEL_ASSIGN_OR_RETURN(
-          CelValue cel_value,
-          internal::GetGenericProtoAccessApisInstance().GetField(
-              field, message_wrapper, unboxing_option,
-              cel::MemoryManagerRef::Pooling(arena)));
-      return cel::ModernValue(arena, cel_value, *result);
-    }
-  }
-  return target.GetStruct().GetFieldByName(
-      field, unboxing_option, descriptor_pool, message_factory, arena, result);
-}
-
 absl::Status PerformHas(const Value& target, absl::string_view field,
                         const StringValue& field_value,
                         const google::protobuf::DescriptorPool* descriptor_pool,
@@ -135,9 +104,7 @@ absl::Status PerformGet(const Value& target, absl::string_view field,
                         ProtoWrapperTypeOptions unboxing_option,
                         const google::protobuf::DescriptorPool* descriptor_pool,
                         google::protobuf::MessageFactory* message_factory,
-                        google::protobuf::Arena* arena,
-                        bool enable_use_new_field_select_implementation,
-                        Value& result) {
+                        google::protobuf::Arena* arena, Value& result) {
   switch (target.kind()) {
     case ValueKind::kMap: {
       auto status = target.GetMap().Get(field_value, descriptor_pool,
@@ -148,9 +115,9 @@ absl::Status PerformGet(const Value& target, absl::string_view field,
       return absl::OkStatus();
     }
     case ValueKind::kStruct: {
-      auto status = WrappedStructGet(
-          target, field, unboxing_option, descriptor_pool, message_factory,
-          arena, enable_use_new_field_select_implementation, &result);
+      auto status = target.GetStruct().GetFieldByName(
+          field, unboxing_option, descriptor_pool, message_factory, arena,
+          &result);
       if (!status.ok()) {
         result = ErrorValue::From(std::move(status), arena);
       }
@@ -166,9 +133,7 @@ absl::Status PerformOptionalGet(const Value& target, absl::string_view field,
                                 ProtoWrapperTypeOptions unboxing_option,
                                 const google::protobuf::DescriptorPool* descriptor_pool,
                                 google::protobuf::MessageFactory* message_factory,
-                                google::protobuf::Arena* arena,
-                                bool enable_use_new_field_select_implementation,
-                                Value& result) {
+                                google::protobuf::Arena* arena, Value& result) {
   switch (target.kind()) {
     case ValueKind::kMap: {
       CEL_ASSIGN_OR_RETURN(
@@ -189,9 +154,9 @@ absl::Status PerformOptionalGet(const Value& target, absl::string_view field,
         result = OptionalValue::None();
         return absl::OkStatus();
       }
-      CEL_RETURN_IF_ERROR(WrappedStructGet(
-          target, field, unboxing_option, descriptor_pool, message_factory,
-          arena, enable_use_new_field_select_implementation, &result));
+      CEL_RETURN_IF_ERROR(target.GetStruct().GetFieldByName(
+          field, unboxing_option, descriptor_pool, message_factory, arena,
+          &result));
 
       ABSL_DCHECK(!result.IsUnknown());
       result = OptionalValue::Of(std::move(result), arena);
@@ -299,10 +264,10 @@ void SelectStep::Evaluate(ExecutionFrame* frame) const {
     }
     Value value;
     optional_arg->Value(&value);
-    absl::Status status = PerformOptionalGet(
-        value, field_, cel::StringValue::WrapUnsafe(field_), unboxing_option_,
-        frame->descriptor_pool(), frame->message_factory(), frame->arena(),
-        frame->options().enable_use_new_field_select_implementation, result);
+    absl::Status status =
+        PerformOptionalGet(value, field_, cel::StringValue::WrapUnsafe(field_),
+                           unboxing_option_, frame->descriptor_pool(),
+                           frame->message_factory(), frame->arena(), result);
     if (!status.ok()) {
       result = ErrorValue::From(std::move(status), frame->arena());
     }
@@ -310,10 +275,10 @@ void SelectStep::Evaluate(ExecutionFrame* frame) const {
     return;
   }
 
-  if (absl::Status status = PerformGet(
-          arg, field_, cel::StringValue::WrapUnsafe(field_), unboxing_option_,
-          frame->descriptor_pool(), frame->message_factory(), frame->arena(),
-          frame->options().enable_use_new_field_select_implementation, result);
+  if (absl::Status status =
+          PerformGet(arg, field_, cel::StringValue::WrapUnsafe(field_),
+                     unboxing_option_, frame->descriptor_pool(),
+                     frame->message_factory(), frame->arena(), result);
       !status.ok()) {
     frame->Abort(std::move(status));
     return;
@@ -388,7 +353,6 @@ class ProtoSelectStep : public SelectStep {
       return;
     } else if (const google::protobuf::Message* legacy_message =
                    cel::interop_internal::GetLegacyMessage(arg);
-               frame->options().enable_use_new_field_select_implementation &&
                legacy_message != nullptr) {
       auto parsed_message = cel::UnsafeParsedMessageValue(legacy_message);
       // A little unfortunate, but need to special case for legacy values so we

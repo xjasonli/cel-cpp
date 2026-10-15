@@ -492,10 +492,4 @@ const LegacyTypeInfoApis& GetGenericProtoTypeInfoInstance() {
   return DucktypedMessageAdapter::GetSingleton();
 }
 
-namespace internal {
-const LegacyTypeAccessApis& GetGenericProtoAccessApisInstance() {
-  return DucktypedMessageAdapter::GetSingleton();
-}
-}  // namespace internal
-
 }  // namespace google::api::expr::runtime

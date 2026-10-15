@@ -225,16 +225,6 @@ struct InterpreterOptions {
   // path for field access when the type is known at plan time, instead of using
   // the generic field access implementation.
   bool enable_typed_field_access = true;
-
-  // Temporary flag to gate using a new field selection implementation for
-  // protos.
-  //
-  // For the cel::Runtime APIs, this is a no-op.
-  //
-  // For google::api::expr::runtime::CelExpression, this will enable updated
-  // implementations for field access on protobuf messages, aligned with the
-  // cel::Value implementation.
-  bool enable_use_new_field_select_implementation = true;
 };
 // LINT.ThenChange(//depot/google3/runtime/runtime_options.h)
 

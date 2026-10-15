@@ -203,16 +203,6 @@ struct RuntimeOptions {
   // not what the planner expected (e.g. a map that was declared as a proto or
   // a different message with matching field names).
   bool enable_typed_field_access = true;
-
-  // Temporary flag to gate using a new field selection implementation for
-  // protos.
-  //
-  // For the cel::Runtime APIs, this is a no-op.
-  //
-  // For google::api::expr::runtime::CelExpression, this will enable updated
-  // implementations for field access on protobuf messages, aligned with the
-  // cel::Value implementation.
-  bool enable_use_new_field_select_implementation = true;
 };
 // LINT.ThenChange(//depot/google3/eval/public/cel_options.h)
 

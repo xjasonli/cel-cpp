@@ -107,10 +107,6 @@ absl::StatusOr<CelValue> CreateCelValueFromField(
 // instead of expecting a particular message type given a TypeInfo.
 const LegacyTypeInfoApis& GetGenericProtoTypeInfoInstance();
 
-namespace internal {
-const LegacyTypeAccessApis& GetGenericProtoAccessApisInstance();
-}  // namespace internal
-
 }  // namespace google::api::expr::runtime
 
 #endif  // THIRD_PARTY_CEL_CPP_EVAL_PUBLIC_STRUCTS_PROTO_MESSAGE_TYPE_ADAPTER_H_

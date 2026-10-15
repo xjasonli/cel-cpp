@@ -43,8 +43,6 @@
 #include "common/expr.h"
 #include "common/function_descriptor.h"
 #include "common/kind.h"
-#include "common/legacy_value.h"
-#include "common/memory.h"
 #include "common/native_type.h"
 #include "common/type.h"
 #include "common/value.h"
@@ -53,8 +51,6 @@
 #include "eval/eval/attribute_trail.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_base.h"
-#include "eval/public/cel_value.h"
-#include "eval/public/structs/proto_message_type_adapter.h"
 #include "internal/casts.h"
 #include "internal/number.h"
 #include "internal/status_macros.h"
@@ -78,15 +74,12 @@ using ::cel::Expr;
 using ::cel::ExprKind;
 using ::cel::SelectExpr;
 using ::google::api::expr::runtime::AttributeTrail;
-using ::google::api::expr::runtime::CelValue;
 using ::google::api::expr::runtime::ExecutionFrame;
 using ::google::api::expr::runtime::ExecutionFrameBase;
 using ::google::api::expr::runtime::ExpressionStep;
 using ::google::api::expr::runtime::ExpressionStepBase;
-using ::google::api::expr::runtime::GetGenericProtoTypeInfoInstance;
 using ::google::api::expr::runtime::PlannerContext;
 using ::google::api::expr::runtime::ProgramOptimizer;
-using ::google::api::expr::runtime::internal::GetGenericProtoAccessApisInstance;
 
 // Represents a single select operation (field access or indexing).
 // For struct-typed field accesses, includes the field name and the field
@@ -275,69 +268,11 @@ absl::StatusOr<Value> MapKeyFromQualifier(const AttributeQualifier& qual,
   }
 }
 
-// // Helper for StructValue::GetFieldByName. Used for opting out of old
-// reflection implementation.
-absl::StatusOr<Value> WrappedStructGet(
-    const Value& target, absl::string_view field,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena,
-    bool enable_use_new_field_select_implementation) {
-  if (!enable_use_new_field_select_implementation) {
-    if (const google::protobuf::Message* message =
-            cel::interop_internal::GetLegacyMessage(target);
-        message != nullptr) {
-      CelValue::MessageWrapper message_wrapper(
-          message, &GetGenericProtoTypeInfoInstance());
-      CEL_ASSIGN_OR_RETURN(CelValue cel_value,
-                           GetGenericProtoAccessApisInstance().GetField(
-                               field, message_wrapper,
-                               ProtoWrapperTypeOptions::kUnsetProtoDefault,
-                               MemoryManagerRef::Pooling(arena)));
-      Value result;
-      CEL_RETURN_IF_ERROR(cel::ModernValue(arena, cel_value, result));
-      return result;
-    }
-  }
-  return target.GetStruct().GetFieldByName(field, descriptor_pool,
-                                           message_factory, arena);
-}
-
-// Helper for StructValue::Qualify. Used for opting out of old reflection
-// implementation.
-absl::StatusOr<std::pair<Value, int>> WrappedStructQualify(
-    const StructValue& struct_value,
-    absl::Span<const SelectQualifier> qualifiers, bool presence_test,
-    const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
-    google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena,
-    bool enable_use_new_field_select_implementation) {
-  if (!enable_use_new_field_select_implementation) {
-    if (const google::protobuf::Message* message =
-            cel::interop_internal::GetLegacyMessage(struct_value);
-        message != nullptr) {
-      CelValue::MessageWrapper message_wrapper(
-          message, &GetGenericProtoTypeInfoInstance());
-      CEL_ASSIGN_OR_RETURN(auto legacy_result,
-                           GetGenericProtoAccessApisInstance().Qualify(
-                               qualifiers, message_wrapper, presence_test,
-                               MemoryManagerRef::Pooling(arena)));
-      Value result;
-      CEL_RETURN_IF_ERROR(cel::ModernValue(arena, legacy_result.value, result));
-      return std::pair<Value, int>{std::move(result),
-                                   legacy_result.qualifier_count};
-    }
-  }
-  return struct_value.Qualify(qualifiers, presence_test, descriptor_pool,
-                              message_factory, arena);
-}
-
 absl::StatusOr<Value> ApplyQualifier(
     const Value& operand, const SelectQualifier& qualifier,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena,
-    bool enable_use_new_field_select_implementation) {
+    google::protobuf::Arena* absl_nonnull arena) {
   return absl::visit(
       absl::Overload(
           [&](const FieldSpecifier& field_specifier) -> absl::StatusOr<Value> {
@@ -347,9 +282,8 @@ absl::StatusOr<Value> ApplyQualifier(
                       "<select>"),
                   arena);
             }
-            return WrappedStructGet(operand, field_specifier.name,
-                                    descriptor_pool, message_factory, arena,
-                                    enable_use_new_field_select_implementation);
+            return operand.GetStruct().GetFieldByName(
+                field_specifier.name, descriptor_pool, message_factory, arena);
           },
           [&](const AttributeQualifier& qualifier) -> absl::StatusOr<Value> {
             if (operand.Is<ListValue>()) {
@@ -380,17 +314,15 @@ absl::StatusOr<Value> FallbackSelect(
     bool presence_test,
     const google::protobuf::DescriptorPool* absl_nonnull descriptor_pool,
     google::protobuf::MessageFactory* absl_nonnull message_factory,
-    google::protobuf::Arena* absl_nonnull arena,
-    bool enable_use_new_field_select_implementation) {
+    google::protobuf::Arena* absl_nonnull arena) {
   const Value* elem = &root;
   Value result;
 
   for (const auto& instruction :
        select_path.subspan(0, select_path.size() - 1)) {
-    CEL_ASSIGN_OR_RETURN(
-        result,
-        ApplyQualifier(*elem, instruction, descriptor_pool, message_factory,
-                       arena, enable_use_new_field_select_implementation));
+    CEL_ASSIGN_OR_RETURN(result,
+                         ApplyQualifier(*elem, instruction, descriptor_pool,
+                                        message_factory, arena));
     if (result->Is<ErrorValue>()) {
       return result;
     }
@@ -429,8 +361,7 @@ absl::StatusOr<Value> FallbackSelect(
   }
 
   return ApplyQualifier(*elem, last_instruction, descriptor_pool,
-                        message_factory, arena,
-                        enable_use_new_field_select_implementation);
+                        message_factory, arena);
 }
 
 absl::StatusOr<std::vector<SelectQualifier>> SelectInstructionsFromCall(
@@ -705,17 +636,15 @@ absl::StatusOr<Value> OptimizedSelectImpl::ApplySelect(
   auto value_or =
       (options_.force_fallback_implementation)
           ? absl::UnimplementedError("Forced fallback impl")
-          : WrappedStructQualify(
-                struct_value, select_path_, presence_test_,
-                frame.descriptor_pool(), frame.message_factory(), frame.arena(),
-                frame.options().enable_use_new_field_select_implementation);
+          : struct_value.Qualify(select_path_, presence_test_,
+                                 frame.descriptor_pool(),
+                                 frame.message_factory(), frame.arena());
 
   if (!value_or.ok()) {
     if (value_or.status().code() == absl::StatusCode::kUnimplemented) {
-      return FallbackSelect(
-          struct_value, select_path_, presence_test_, frame.descriptor_pool(),
-          frame.message_factory(), frame.arena(),
-          frame.options().enable_use_new_field_select_implementation);
+      return FallbackSelect(struct_value, select_path_, presence_test_,
+                            frame.descriptor_pool(), frame.message_factory(),
+                            frame.arena());
     }
 
     return value_or.status();
@@ -729,8 +658,7 @@ absl::StatusOr<Value> OptimizedSelectImpl::ApplySelect(
       value_or->first,
       absl::MakeConstSpan(select_path_).subspan(value_or->second),
       presence_test_, frame.descriptor_pool(), frame.message_factory(),
-      frame.arena(),
-      frame.options().enable_use_new_field_select_implementation);
+      frame.arena());
 }
 
 AttributeTrail OptimizedSelectImpl::GetAttributeTrail(
