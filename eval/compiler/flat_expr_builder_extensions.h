@@ -25,6 +25,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <utility>
 #include <variant>
 #include <vector>
@@ -40,6 +41,7 @@
 #include "base/ast.h"
 #include "base/type_provider.h"
 #include "common/expr.h"
+#include "common/type.h"
 #include "common/type_reflector.h"
 #include "eval/compiler/resolver.h"
 #include "eval/eval/evaluator_core.h"
@@ -297,8 +299,9 @@ class PlannerContext {
         issue_collector_(issue_collector),
         program_builder_(program_builder),
         arena_(arena),
+        message_factory_(std::move(message_factory)),
         explicit_arena_(arena_ != nullptr),
-        message_factory_(std::move(message_factory)) {}
+        resolve_types_(options_.enable_typed_field_access) {}
 
   ProgramBuilder& program_builder() { return program_builder_; }
 
@@ -358,6 +361,30 @@ class PlannerContext {
     return arena_.get();
   }
 
+  // Whether the planner should resolve types in the AST to concrete cel::Type
+  // values.
+  bool resolve_types() const { return resolve_types_; }
+
+  void set_resolve_types() { resolve_types_ = true; }
+
+  // Returns the resolved type if available.
+  //
+  // This can only be used as a hint since we can't guarantee that the AST was
+  // type checked or can be fully trusted (e.g. post-processing broke IDs).
+  //
+  // This is populated by FlatExprBuilder on the PreVisit pass for the Expr.
+  std::optional<cel::Type> GetResolvedType(int64_t expr_id) const {
+    auto it = resolved_types_.find(expr_id);
+    if (it != resolved_types_.end()) {
+      return it->second;
+    }
+    return std::nullopt;
+  }
+
+  void SetResolvedType(int64_t expr_id, cel::Type type) {
+    resolved_types_[expr_id] = std::move(type);
+  }
+
   // Returns `true` if a message factory was explicitly provided during
   // planning.
   bool HasExplicitMessageFactory() const { return message_factory_ != nullptr; }
@@ -375,8 +402,10 @@ class PlannerContext {
   cel::runtime_internal::IssueCollector& issue_collector_;
   ProgramBuilder& program_builder_;
   std::shared_ptr<google::protobuf::Arena>& arena_;
-  const bool explicit_arena_;
   const std::shared_ptr<google::protobuf::MessageFactory> message_factory_;
+  const bool explicit_arena_;
+  bool resolve_types_;
+  absl::flat_hash_map<int64_t, cel::Type> resolved_types_;
 };
 
 // Interface for Ast Transforms.

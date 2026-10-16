@@ -14,6 +14,7 @@
 #include "eval/compiler/flat_expr_builder_extensions.h"
 
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "absl/base/nullability.h"
@@ -21,6 +22,7 @@
 #include "absl/status/status_matchers.h"
 #include "absl/status/statusor.h"
 #include "common/expr.h"
+#include "common/type.h"
 #include "eval/compiler/resolver.h"
 #include "eval/eval/evaluator_core.h"
 #include "eval/eval/expression_step_logic.h"
@@ -345,6 +347,23 @@ TEST_F(PlannerContextTest, AddSubplanStepFailsOnUnknownNode) {
 
   EXPECT_THAT(context.AddSubplanStep(d, std::move(b2_step)),
               StatusIs(absl::StatusCode::kInternal));
+}
+
+TEST_F(PlannerContextTest, ResolvedTypes) {
+  ProgramBuilder program_builder;
+  std::shared_ptr<google::protobuf::Arena> arena;
+  options_.enable_typed_field_access = false;
+  PlannerContext context(env_, resolver_, options_,
+                         type_registry_.GetComposedTypeProvider(),
+                         issue_collector_, program_builder, arena);
+
+  EXPECT_FALSE(context.resolve_types());
+  context.set_resolve_types();
+  EXPECT_TRUE(context.resolve_types());
+
+  EXPECT_EQ(context.GetResolvedType(1), std::nullopt);
+  context.SetResolvedType(1, cel::IntType());
+  EXPECT_THAT(context.GetResolvedType(1), testing::Optional(cel::IntType()));
 }
 
 class ProgramBuilderTest : public testing::Test {

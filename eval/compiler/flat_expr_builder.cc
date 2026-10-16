@@ -611,21 +611,6 @@ class FlatExprVisitor : public cel::AstVisitor {
     }
   }
 
-  void SetResolvedType(const cel::Expr& expr, cel::Type type) {
-    resolved_types_[&expr] = std::move(type);
-  }
-
-  std::optional<cel::Type> GetResolvedType(const cel::Expr* expr) const {
-    if (expr == nullptr) {
-      return std::nullopt;
-    }
-    auto it = resolved_types_.find(expr);
-    if (it != resolved_types_.end()) {
-      return it->second;
-    }
-    return std::nullopt;
-  }
-
   void PreVisitExpr(const cel::Expr& expr) override {
     ValidateOrError(!absl::holds_alternative<cel::UnspecifiedExpr>(expr.kind()),
                     "Invalid empty expression");
@@ -637,7 +622,7 @@ class FlatExprVisitor : public cel::AstVisitor {
       resume_from_suppressed_branch_ = &expr;
     }
 
-    if (options_.enable_typed_field_access) {
+    if (extension_context_.resolve_types()) {
       MaybeResolveType(expr);
     }
 
@@ -965,7 +950,7 @@ class FlatExprVisitor : public cel::AstVisitor {
     std::optional<cel::StructTypeField> field_type;
     if (options_.enable_typed_field_access) {
       std::optional<cel::Type> operand_type =
-          GetResolvedType(&select_expr.operand());
+          extension_context_.GetResolvedType(select_expr.operand().id());
       if (operand_type.has_value() && operand_type->IsStruct()) {
         struct_type = operand_type->GetStruct();
         if (struct_type.has_value()) {
@@ -1720,7 +1705,6 @@ class FlatExprVisitor : public cel::AstVisitor {
   const cel::Expr* resume_from_suppressed_branch_ = nullptr;
   std::vector<std::unique_ptr<ProgramOptimizer>> program_optimizers_;
   const absl::flat_hash_map<int64_t, cel::TypeSpec>& type_map_;
-  absl::flat_hash_map<const cel::Expr*, cel::Type> resolved_types_;
   IssueCollector& issue_collector_;
 
   ProgramBuilder& program_builder_;
@@ -1869,7 +1853,7 @@ void FlatExprVisitor::MaybeResolveType(const cel::Expr& expr) {
   if (!type.ok()) {
     return;
   }
-  SetResolvedType(expr, *type);
+  extension_context_.SetResolvedType(expr.id(), *type);
 }
 
 void LogicalCondVisitor::PreVisit(const cel::Expr* expr) {
