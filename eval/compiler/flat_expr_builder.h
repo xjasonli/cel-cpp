@@ -81,6 +81,10 @@ class FlatExprBuilder {
 
   bool optional_types_enabled() const { return enable_optional_types_; }
 
+  // Called when select optimization is enabled to accept ASTs tagged with the
+  // `select_optimization` runtime extension.
+  void enable_select_optimization() { enable_select_optimization_ = true; }
+
  private:
   const cel::TypeProvider& GetTypeProvider() const;
 
@@ -90,6 +94,7 @@ class FlatExprBuilder {
   cel::RuntimeOptions options_;
   std::string container_;
   bool enable_optional_types_ = false;
+  bool enable_select_optimization_ = false;
   // TODO(uncreated-issue/45): evaluate whether we should use a shared_ptr here to
   // allow built expressions to keep the registries alive.
   const cel::FunctionRegistry& function_registry_;

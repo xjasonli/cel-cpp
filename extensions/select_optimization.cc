@@ -166,7 +166,8 @@ std::optional<SelectInstruction> GetSelectInstruction(
 }
 
 absl::StatusOr<SelectQualifier> SelectQualifierFromList(const ListExpr& list) {
-  if (list.elements().size() != 2) {
+  // Type codes may follow [number, name]; they're unused here.
+  if (list.elements().size() < 2 || list.elements().size() > 4) {
     return absl::InvalidArgumentError("Invalid cel.attribute select list");
   }
 
@@ -774,14 +775,13 @@ absl::Status SelectOptimizer::OnPostVisit(PlannerContext& context,
   if (fn != kCelHasField && fn != kCelAttribute) {
     return absl::OkStatus();
   }
+  const bool presence_test = fn == kCelHasField;
 
-  if (node.call_expr().args().size() < 2 ||
-      node.call_expr().args().size() > 3) {
+  // cel.@attribute may take a 3rd arg that only types the result; it's unused.
+  const size_t max_args = presence_test ? 2 : 3;
+  const size_t num_args = node.call_expr().args().size();
+  if (num_args < 2 || num_args > max_args) {
     return absl::InvalidArgumentError("Invalid cel.attribute call");
-  }
-
-  if (node.call_expr().args().size() == 3) {
-    return absl::UnimplementedError("Optionals not yet supported");
   }
 
   CEL_ASSIGN_OR_RETURN(std::vector<SelectQualifier> instructions,
@@ -789,12 +789,6 @@ absl::Status SelectOptimizer::OnPostVisit(PlannerContext& context,
 
   if (instructions.empty()) {
     return absl::InvalidArgumentError("Invalid cel.attribute no select steps.");
-  }
-
-  bool presence_test = false;
-
-  if (fn == kCelHasField) {
-    presence_test = true;
   }
 
   const Expr& operand = node.call_expr().args()[0];
@@ -892,9 +886,13 @@ absl::Status EnableSelectOptimization(
   // the overloads check.
   CEL_RETURN_IF_ERROR(builder.function_registry().RegisterLazyFunction(
       FunctionDescriptor(kCelAttribute, false, {Kind::kAny, Kind::kList})));
+  CEL_RETURN_IF_ERROR(
+      builder.function_registry().RegisterLazyFunction(FunctionDescriptor(
+          kCelAttribute, false, {Kind::kAny, Kind::kList, Kind::kAny})));
 
   CEL_RETURN_IF_ERROR(builder.function_registry().RegisterLazyFunction(
       FunctionDescriptor(kCelHasField, false, {Kind::kAny, Kind::kList})));
+  flat_expr_builder->enable_select_optimization();
   // Add runtime implementation.
   flat_expr_builder->AddProgramOptimizer(
       CreateSelectOptimizationProgramOptimizer(options));

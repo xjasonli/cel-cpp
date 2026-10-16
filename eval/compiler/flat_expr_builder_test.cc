@@ -211,6 +211,51 @@ TEST(FlatExprBuilderTest, RuntimeExtensionsError) {
                        HasSubstr("unsupported CEL extension: ext1")));
 }
 
+TEST(FlatExprBuilderTest, SelectOptimizationRuntimeExtension) {
+  Expr expr;
+  expr.mutable_const_expr()->set_bool_value(true);
+  auto create = [&](CelExpressionBuilder& builder, absl::string_view id,
+                    int major, int minor) {
+    SourceInfo source_info;
+    auto* ext = source_info.add_extensions();
+    ext->set_id(id);
+    ext->mutable_version()->set_major(major);
+    ext->mutable_version()->set_minor(minor);
+    ext->add_affected_components(SourceInfo::Extension::COMPONENT_RUNTIME);
+    return builder.CreateExpression(&expr, &source_info).status();
+  };
+
+  CelExpressionBuilderFlatImpl builder(NewTestingRuntimeEnv());
+  // Other program optimizers don't imply select optimization support.
+  builder.flat_expr_builder().AddProgramOptimizer(
+      [](auto&, const auto&) { return nullptr; });
+  EXPECT_THAT(
+      create(builder, "select_optimization", 1, 0),
+      StatusIs(
+          absl::StatusCode::kInvalidArgument,
+          HasSubstr("unsupported CEL extension: select_optimization@1.0")));
+
+  builder.flat_expr_builder().enable_select_optimization();
+  EXPECT_THAT(create(builder, "select_optimization", 1, 0), IsOk());
+  // Minor versions are informational (see SourceInfo.Extension.Version).
+  EXPECT_THAT(create(builder, "select_optimization", 1, 1), IsOk());
+  EXPECT_THAT(create(builder, "select_optimization", 2, 0),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+  EXPECT_THAT(create(builder, "ext1", 1, 0),
+              StatusIs(absl::StatusCode::kInvalidArgument));
+
+  // The legacy API also plans the 3-arg form under default fail_on_warnings.
+  ASSERT_OK_AND_ASSIGN(ParsedExpr parsed,
+                       parser::Parse("f(x, [[1, 'field', 5]], 0)"));
+  parsed.mutable_expr()->mutable_call_expr()->set_function("cel.@attribute");
+  expr = parsed.expr();
+  InterpreterOptions options;
+  options.enable_select_optimization = true;
+  EXPECT_THAT(
+      create(*CreateCelExpressionBuilder(options), "select_optimization", 1, 0),
+      IsOk());
+}
+
 TEST(FlatExprBuilderTest, ConstValueUnset) {
   Expr expr;
   SourceInfo source_info;

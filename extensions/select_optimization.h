@@ -38,7 +38,8 @@ struct SelectOptimizationOptions {
 };
 
 // Enable select optimization on the given RuntimeBuilder, replacing long
-// select chains with a single operation.
+// select chains with a single operation. Also enables planning ASTs tagged with
+// the `select_optimization` runtime extension.
 //
 // This assumes that the type information at check time agrees with the
 // configured types at runtime.

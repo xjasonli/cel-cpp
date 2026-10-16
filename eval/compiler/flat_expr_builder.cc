@@ -2233,10 +2233,15 @@ std::vector<ExecutionPathView> FlattenExpressionTable(
 }
 
 absl::Status CheckAstExtensions(
-    const std::vector<cel::ExtensionSpec>& extensions) {
+    const std::vector<cel::ExtensionSpec>& extensions,
+    bool enable_select_optimization) {
   for (const cel::ExtensionSpec& extension : extensions) {
     if (extension.id() == "cel_block" && extension.version().major() == 1) {
       // cel_block v1 is always supported.
+      continue;
+    }
+    if (extension.id() == "select_optimization" &&
+        extension.version().major() == 1 && enable_select_optimization) {
       continue;
     }
 
@@ -2262,19 +2267,10 @@ absl::StatusOr<FlatExpression> FlatExprBuilder::CreateExpressionImpl(
                                             : RuntimeIssue::Severity::kError;
   IssueCollector issue_collector(max_severity);
 
-  absl::StatusOr<std::vector<cel::ExtensionSpec>> runtime_extensions =
-      ExtractAndValidateRuntimeExtensions(*ast);
-
-  if (!runtime_extensions.ok()) {
-    CEL_RETURN_IF_ERROR(issue_collector.AddIssue(
-        RuntimeIssue::CreateError(runtime_extensions.status())));
-  }
-
-  auto status = CheckAstExtensions(*runtime_extensions);
-  if (!status.ok()) {
-    CEL_RETURN_IF_ERROR(
-        issue_collector.AddIssue(RuntimeIssue::CreateError(status)));
-  }
+  CEL_ASSIGN_OR_RETURN(std::vector<cel::ExtensionSpec> runtime_extensions,
+                       ExtractAndValidateRuntimeExtensions(*ast));
+  CEL_RETURN_IF_ERROR(
+      CheckAstExtensions(runtime_extensions, enable_select_optimization_));
 
   Resolver resolver(container_, function_registry_, type_registry_,
                     GetTypeProvider(),

@@ -122,19 +122,23 @@ std::unique_ptr<CelExpressionBuilder> CreateCelExpressionBuilder(
     // Add overloads for select optimization signature.
     // These are never bound, only used to prevent the builder from failing on
     // the overloads check.
-    absl::Status status =
-        builder->GetRegistry()->RegisterLazyFunction(CelFunctionDescriptor(
-            kCelAttribute, false, {cel::Kind::kAny, cel::Kind::kList}));
-    if (!status.ok()) {
-      ABSL_LOG(ERROR) << "Failed to register " << kCelAttribute << ": "
-                      << status;
+    for (const auto& desc : {
+             CelFunctionDescriptor(kCelAttribute, false,
+                                   {cel::Kind::kAny, cel::Kind::kList}),
+             CelFunctionDescriptor(
+                 kCelAttribute, false,
+                 {cel::Kind::kAny, cel::Kind::kList, cel::Kind::kAny}),
+             CelFunctionDescriptor(kCelHasField, false,
+                                   {cel::Kind::kAny, cel::Kind::kList}),
+         }) {
+      if (absl::Status status =
+              builder->GetRegistry()->RegisterLazyFunction(desc);
+          !status.ok()) {
+        ABSL_LOG(ERROR) << "Failed to register " << desc.name() << ": "
+                        << status;
+      }
     }
-    status = builder->GetRegistry()->RegisterLazyFunction(CelFunctionDescriptor(
-        kCelHasField, false, {cel::Kind::kAny, cel::Kind::kList}));
-    if (!status.ok()) {
-      ABSL_LOG(ERROR) << "Failed to register " << kCelHasField << ": "
-                      << status;
-    }
+    flat_expr_builder.enable_select_optimization();
     // Add runtime implementation.
     flat_expr_builder.AddProgramOptimizer(
         CreateSelectOptimizationProgramOptimizer());

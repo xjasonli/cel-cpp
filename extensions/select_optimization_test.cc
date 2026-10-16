@@ -1753,6 +1753,39 @@ class SelectOptimizationUnexpectedAstTest : public SelectOptimizationTest {
     return element;
   }
 
+  Expr NextInt(int64_t value) {
+    Expr result = NextExpr();
+    result.mutable_const_expr().set_int_value(value);
+    return result;
+  }
+
+  Expr NextString(absl::string_view value) {
+    Expr result = NextExpr();
+    result.mutable_const_expr().set_string_value(value);
+    return result;
+  }
+
+  template <typename... Exprs>
+  Expr NextList(Exprs... elements) {
+    Expr result = NextExpr();
+    (result.mutable_list_expr().add_elements().set_expr(std::move(elements)),
+     ...);
+    return result;
+  }
+
+  // Plans `fn(ident, args...)` with only the select program optimizer.
+  template <typename... Exprs>
+  absl::Status PlanSelectCall(absl::string_view fn, Exprs... args) {
+    auto ast = std::make_unique<Ast>(NextExpr(), SourceInfo());
+    auto& call = ast->mutable_root_expr().mutable_call_expr();
+    call.set_function(fn);
+    call.add_args().mutable_ident_expr().set_name("ident");
+    (call.mutable_args().push_back(std::move(args)), ...);
+    FlatExprBuilder builder(env_, runtime_options_);
+    builder.AddProgramOptimizer(CreateSelectOptimizationProgramOptimizer());
+    return builder.CreateExpressionImpl(std::move(ast), nullptr).status();
+  }
+
  protected:
   int64_t next_id_;
 };
@@ -1907,37 +1940,46 @@ TEST_F(SelectOptimizationUnexpectedAstTest,
               StatusIs(absl::StatusCode::kInvalidArgument));
 }
 
-TEST_F(SelectOptimizationUnexpectedAstTest, OptionalNotYetSupported) {
-  std::unique_ptr<Ast> ast = std::make_unique<Ast>(NextExpr(), SourceInfo());
+TEST_F(SelectOptimizationUnexpectedAstTest, TypedTupleAttributeAccepted) {
+  using FieldDescriptor = google::protobuf::FieldDescriptor;
+  // [field_num, field_name, type_code] hops, a map leaf
+  // [field_num, field_name, -1, [key_type, value_type]], and a 3rd argument
+  // that only binds the result type.
+  EXPECT_THAT(
+      PlanSelectCall(
+          kCelAttribute,
+          NextList(NextList(NextInt(1), NextString("field"),
+                            NextInt(FieldDescriptor::TYPE_MESSAGE)),
+                   NextList(NextInt(2), NextString("map_field"), NextInt(-1),
+                            NextList(NextInt(FieldDescriptor::TYPE_STRING),
+                                     NextInt(FieldDescriptor::TYPE_INT32)))),
+          NextInt(0)),
+      IsOk());
+}
 
-  ast->mutable_root_expr().mutable_call_expr().set_function(kCelAttribute);
-  auto& call_args = ast->mutable_root_expr().mutable_call_expr().mutable_args();
-  call_args.emplace_back(NextExpr()).mutable_ident_expr().set_name("ident");
+TEST_F(SelectOptimizationUnexpectedAstTest, TooManyArguments) {
+  EXPECT_THAT(
+      PlanSelectCall(kCelHasField,
+                     NextList(NextList(NextInt(1), NextString("field"))),
+                     NextInt(0)),
+      StatusIs(absl::StatusCode::kInvalidArgument,
+               HasSubstr("Invalid cel.attribute call")));
+  EXPECT_THAT(
+      PlanSelectCall(kCelAttribute,
+                     NextList(NextList(NextInt(1), NextString("field"))),
+                     NextInt(0), NextInt(0)),
+      StatusIs(absl::StatusCode::kInvalidArgument,
+               HasSubstr("Invalid cel.attribute call")));
+}
 
-  auto& list_expr = call_args.emplace_back(NextExpr()).mutable_list_expr();
-  auto& fields = list_expr.mutable_elements()
-                     .emplace_back(NextListExprElement())
-                     .mutable_expr()
-                     .mutable_list_expr()
-                     .mutable_elements();
-
-  fields.emplace_back(NextListExprElement())
-      .mutable_expr()
-      .mutable_const_expr()
-      .set_int64_value(1);
-  fields.emplace_back(NextListExprElement())
-      .mutable_expr()
-      .mutable_const_expr()
-      .set_string_value("field");
-
-  call_args.emplace_back(NextExpr()).mutable_const_expr().set_int64_value(0);
-
-  FlatExprBuilder builder(env_, runtime_options_);
-
-  builder.AddProgramOptimizer(CreateSelectOptimizationProgramOptimizer());
-
-  EXPECT_THAT(builder.CreateExpressionImpl(std::move(ast), nullptr),
-              StatusIs(absl::StatusCode::kUnimplemented));
+TEST_F(SelectOptimizationUnexpectedAstTest,
+       MalformedSelectPathTooManyElements) {
+  EXPECT_THAT(
+      PlanSelectCall(kCelAttribute,
+                     NextList(NextList(NextInt(1), NextString("field"),
+                                       NextInt(5), NextInt(0), NextInt(0)))),
+      StatusIs(absl::StatusCode::kInvalidArgument,
+               HasSubstr("Invalid cel.attribute select list")));
 }
 
 }  // namespace
