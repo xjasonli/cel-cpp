@@ -45,17 +45,12 @@ bool FunctionDescriptor::ShapeMatches(bool receiver_style,
 }
 
 bool FunctionDescriptor::operator==(const FunctionDescriptor& other) const {
-  return impl_.get() == other.impl_.get() ||
-         (name() == other.name() &&
-          receiver_style() == other.receiver_style() &&
-          types().size() == other.types().size() &&
-          std::equal(types().begin(), types().end(), other.types().begin()));
+  return name() == other.name() && receiver_style() == other.receiver_style() &&
+         types().size() == other.types().size() &&
+         std::equal(types().begin(), types().end(), other.types().begin());
 }
 
 bool FunctionDescriptor::operator<(const FunctionDescriptor& other) const {
-  if (impl_.get() == other.impl_.get()) {
-    return false;
-  }
   if (name() < other.name()) {
     return true;
   }
