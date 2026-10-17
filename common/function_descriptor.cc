@@ -16,9 +16,14 @@
 
 #include <algorithm>
 #include <cstddef>
+#include <memory>
+#include <variant>
+#include <vector>
 
 #include "absl/base/macros.h"
+#include "absl/functional/overload.h"
 #include "absl/types/span.h"
+#include "common/ast.h"
 #include "common/kind.h"
 
 namespace cel {
@@ -88,6 +93,88 @@ bool FunctionDescriptor::operator<(const FunctionDescriptor& other) const {
   // Right has no more elements. Left is greater.
   ABSL_ASSERT(rhs_begin == rhs_end);
   return false;
+}
+
+namespace {
+
+[[nodiscard]]
+Kind TypeSpecToKind(const TypeSpec& spec) {
+  return std::visit(
+      absl::Overload(
+          [](UnsetTypeSpec) -> Kind { return Kind::kError; },
+          [](const DynTypeSpec& spec) -> Kind { return Kind::kDyn; },
+          [](const NullTypeSpec& spec) -> Kind { return Kind::kNull; },
+          [](const PrimitiveType& spec) -> Kind {
+            switch (spec) {
+              case PrimitiveType::kPrimitiveTypeUnspecified:
+                return Kind::kError;
+              case PrimitiveType::kBool:
+                return Kind::kBool;
+              case PrimitiveType::kInt64:
+                return Kind::kInt;
+              case PrimitiveType::kUint64:
+                return Kind::kUint;
+              case PrimitiveType::kDouble:
+                return Kind::kDouble;
+              case PrimitiveType::kString:
+                return Kind::kString;
+              case PrimitiveType::kBytes:
+                return Kind::kBytes;
+            }
+          },
+          [](const PrimitiveTypeWrapper& spec) -> Kind {
+            switch (spec.type()) {
+              case PrimitiveType::kPrimitiveTypeUnspecified:
+                return Kind::kError;
+              case PrimitiveType::kBool:
+                return Kind::kBoolWrapper;
+              case PrimitiveType::kInt64:
+                return Kind::kIntWrapper;
+              case PrimitiveType::kUint64:
+                return Kind::kUintWrapper;
+              case PrimitiveType::kDouble:
+                return Kind::kDoubleWrapper;
+              case PrimitiveType::kString:
+                return Kind::kStringWrapper;
+              case PrimitiveType::kBytes:
+                return Kind::kBytesWrapper;
+            }
+          },
+          [](const WellKnownTypeSpec& spec) -> Kind {
+            switch (spec) {
+              case cel::WellKnownTypeSpec::kWellKnownTypeUnspecified:
+                return Kind::kError;
+              case cel::WellKnownTypeSpec::kDuration:
+                return Kind::kError;
+              case cel::WellKnownTypeSpec::kTimestamp:
+                return Kind::kTimestamp;
+              case cel::WellKnownTypeSpec::kAny:
+                return Kind::kAny;
+            }
+          },
+          [](const ListTypeSpec& spec) -> Kind { return Kind::kList; },
+          [](const MapTypeSpec& spec) -> Kind { return Kind::kMap; },
+          [](const FunctionTypeSpec& spec) -> Kind { return Kind::kFunction; },
+          [](const MessageTypeSpec& spec) -> Kind { return Kind::kStruct; },
+          [](const ParamTypeSpec& spec) -> Kind { return Kind::kTypeParam; },
+          [](const std::unique_ptr<TypeSpec>& spec) -> Kind {
+            return Kind::kType;
+          },
+          [](const ErrorTypeSpec& spec) -> Kind { return Kind::kError; },
+          [](const AbstractType& spec) -> Kind { return Kind::kOpaque; }),
+      spec.type_kind());
+}
+
+}  // namespace
+
+std::vector<Kind> FunctionDescriptor::FunctionTypeSpecToArgumentKinds(
+    const FunctionTypeSpec& spec) {
+  std::vector<Kind> kinds;
+  kinds.reserve(spec.arg_types().size());
+  for (const auto& arg : spec.arg_types()) {
+    kinds.push_back(TypeSpecToKind(arg));
+  }
+  return kinds;
 }
 
 }  // namespace cel

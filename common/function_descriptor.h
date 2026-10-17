@@ -19,8 +19,10 @@
 #include <utility>
 #include <vector>
 
+#include "absl/base/attributes.h"
 #include "absl/strings/string_view.h"
 #include "absl/types/span.h"
+#include "common/ast.h"
 #include "common/kind.h"
 
 namespace cel {
@@ -42,8 +44,28 @@ struct FunctionDescriptorOptions {
 
 // Coarsely describes a function for the purpose of runtime resolution of
 // overloads.
-class FunctionDescriptor final {
+class FunctionDescriptor {
  public:
+  // Creates a FunctionDescriptor for a global function.
+  [[nodiscard]]
+  static FunctionDescriptor Global(absl::string_view name,
+                                   absl::string_view overload_id,
+                                   const FunctionTypeSpec& type,
+                                   FunctionDescriptorOptions options = {}) {
+    return FunctionDescriptor(name, overload_id, type, options,
+                              /*is_receiver_style=*/false);
+  }
+
+  // Creates a FunctionDescriptor for a member function.
+  [[nodiscard]]
+  static FunctionDescriptor Member(absl::string_view name,
+                                   absl::string_view overload_id,
+                                   const FunctionTypeSpec& type,
+                                   FunctionDescriptorOptions options = {}) {
+    return FunctionDescriptor(name, overload_id, type, options,
+                              /*is_receiver_style=*/true);
+  }
+
   FunctionDescriptor(const FunctionDescriptor&) = default;
   FunctionDescriptor(FunctionDescriptor&&) = default;
   FunctionDescriptor& operator=(const FunctionDescriptor&) = default;
@@ -67,12 +89,18 @@ class FunctionDescriptor final {
                      std::vector<Kind> types,
                      FunctionDescriptorOptions options = {})
       : name_(name),
-        types_(std::move(types)),
+        kinds_(std::move(types)),
         is_receiver_style_(is_receiver_style),
         options_(std::move(options)) {}
 
   // Function name.
   const std::string& name() const { return name_; }
+
+  // Function overload ID. This may be empty for legacy code.
+  [[nodiscard]]
+  absl::string_view overload_id() const ABSL_ATTRIBUTE_LIFETIME_BOUND {
+    return overload_id_;
+  }
 
   // Whether function is receiver style i.e. true means arg0.name(args[1:]...).
   bool receiver_style() const { return is_receiver_style_; }
@@ -80,7 +108,7 @@ class FunctionDescriptor final {
   // The argument types the function accepts.
   //
   // TODO(uncreated-issue/17): make this kinds
-  const std::vector<Kind>& types() const { return types_; }
+  const std::vector<Kind>& types() const { return kinds_; }
 
   // if true (strict, default), error or unknown arguments are propagated
   // instead of calling the function. if false (non-strict), the function may
@@ -108,8 +136,22 @@ class FunctionDescriptor final {
   bool operator<(const FunctionDescriptor& other) const;
 
  private:
+  [[nodiscard]]
+  static std::vector<Kind> FunctionTypeSpecToArgumentKinds(
+      const FunctionTypeSpec& spec);
+
+  FunctionDescriptor(absl::string_view name, absl::string_view overload_id,
+                     const FunctionTypeSpec& type,
+                     FunctionDescriptorOptions options, bool is_receiver_style)
+      : name_(name),
+        overload_id_(overload_id),
+        kinds_(FunctionTypeSpecToArgumentKinds(type)),
+        is_receiver_style_(is_receiver_style),
+        options_(std::move(options)) {}
+
   std::string name_;
-  std::vector<Kind> types_;
+  std::string overload_id_;
+  std::vector<Kind> kinds_;
   bool is_receiver_style_;
   FunctionDescriptorOptions options_;
 };
