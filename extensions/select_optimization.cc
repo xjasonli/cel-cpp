@@ -400,8 +400,9 @@ absl::StatusOr<std::vector<SelectQualifier>> SelectInstructionsFromCall(
 
 class RewriterImpl : public AstRewriterBase {
  public:
-  RewriterImpl(const Ast& ast, PlannerContext& planner_context)
-      : ast_(ast), planner_context_(planner_context) {}
+  RewriterImpl(const Ast& ast, PlannerContext& planner_context,
+               const SelectOptimizationOptions& options)
+      : ast_(ast), planner_context_(planner_context), options_(options) {}
 
   void PreVisitExpr(const Expr& expr) override { path_.push_back(&expr); }
 
@@ -474,6 +475,10 @@ class RewriterImpl : public AstRewriterBase {
     }
 
     SelectPath path = GetSelectPath(&expr);
+    if (path.select_instructions.size() <
+        options_.min_field_depth_for_optimization) {
+      return false;
+    }
 
     // generate the new cel.attribute call.
     absl::string_view fn = path.test_only ? kCelHasField : kCelAttribute;
@@ -556,6 +561,7 @@ class RewriterImpl : public AstRewriterBase {
 
   const Ast& ast_;
   PlannerContext& planner_context_;
+  SelectOptimizationOptions options_;
   // ids of potentially optimizeable expr nodes.
   absl::flat_hash_map<const Expr*, QualifierInstruction> candidates_;
   std::vector<const Expr*> path_;
@@ -858,7 +864,7 @@ google::api::expr::runtime::FlatExprBuilder* GetFlatExprBuilder(
 
 absl::Status SelectOptimizationAstUpdater::UpdateAst(PlannerContext& context,
                                                      Ast& ast) const {
-  RewriterImpl rewriter(ast, context);
+  RewriterImpl rewriter(ast, context, options_);
   AstRewrite(ast.mutable_root_expr(), rewriter);
   return rewriter.GetProgressStatus();
 }
@@ -880,7 +886,7 @@ absl::Status EnableSelectOptimization(
   }
 
   flat_expr_builder->AddAstTransform(
-      std::make_unique<SelectOptimizationAstUpdater>());
+      std::make_unique<SelectOptimizationAstUpdater>(options));
   // Add overloads for select optimization signature.
   // These are never bound, only used to prevent the builder from failing on
   // the overloads check.

@@ -528,6 +528,47 @@ TEST_F(SelectOptimizationTest, AstTransformComplexSelect) {
       ElementsAre(SelectFieldEntry(1, "child"), SelectFieldEntry(1, "child")));
 }
 
+TEST_F(SelectOptimizationTest, AstTransformMinFieldDepth) {
+  ASSERT_OK_AND_ASSIGN(
+      std::unique_ptr<cel::Ast> ast,
+      CompileForTestCase(
+          "((false)? a.child.child : b.child).child.payload.single_int64"));
+
+  SelectOptimizationOptions options;
+  options.min_field_depth_for_optimization = 2;
+  SelectOptimizationAstUpdater updater(options);
+  EXPECT_THAT(updater.UpdateAst(context_, *ast), IsOk());
+
+  const CallExpr& attr_call = ast->root_expr().call_expr();
+  EXPECT_EQ(attr_call.function(), "cel.@attribute");
+
+  ASSERT_THAT(attr_call.args(), SizeIs(2));
+
+  EXPECT_THAT(
+      attr_call.args()[1].list_expr().elements(),
+      ElementsAre(SelectFieldEntry(1, "child"), SelectFieldEntry(2, "payload"),
+                  SelectFieldEntry(2, "single_int64")));
+
+  const Expr& operand = attr_call.args()[0];
+
+  EXPECT_EQ(operand.call_expr().function(), cel::builtin::kTernary);
+  ASSERT_THAT(operand.call_expr().args(), SizeIs(3));
+
+  const Expr& true_branch = operand.call_expr().args()[1];
+
+  EXPECT_EQ(true_branch.call_expr().function(), "cel.@attribute");
+  ASSERT_THAT(true_branch.call_expr().args(), SizeIs(2));
+
+  EXPECT_THAT(
+      true_branch.call_expr().args()[1].list_expr().elements(),
+      ElementsAre(SelectFieldEntry(1, "child"), SelectFieldEntry(1, "child")));
+
+  const Expr& false_branch = operand.call_expr().args()[2];
+  EXPECT_TRUE(false_branch.has_select_expr());
+  EXPECT_EQ(false_branch.select_expr().field(), "child");
+  EXPECT_EQ(false_branch.select_expr().operand().ident_expr().name(), "b");
+}
+
 TEST_F(SelectOptimizationTest, AstTransformMapIndexTraversal) {
   // nested_test_all_types.payload.map_string_message['$not_a_field'].bb
   ASSERT_OK_AND_ASSIGN(std::unique_ptr<cel::Ast> ast,
