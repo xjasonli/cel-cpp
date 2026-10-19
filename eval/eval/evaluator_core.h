@@ -19,6 +19,7 @@
 #include <cstdint>
 #include <limits>
 #include <memory>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
@@ -166,9 +167,20 @@ class ExpressionStep {
   const ExpressionStepLogic* GetGenericStep() const;
   bool IsGenericStep() const;
 
+  // Returns the worst-case change in value stack size when evaluating this
+  // step, or std::nullopt if the delta overflows.
+  std::optional<int64_t> StackDelta() const;
+
   static ExpressionStep MakeGenericStep(
-      std::unique_ptr<ExpressionStepLogic> logic, int64_t id = -1) {
+      std::unique_ptr<ExpressionStepLogic> logic, int64_t id = -1,
+      int64_t stack_delta = 1) {
     ExpressionStep step(ExpressionStepKind::kGenericLogic, id);
+    if (stack_delta < std::numeric_limits<int16_t>::min() ||
+        stack_delta >= std::numeric_limits<int16_t>::max()) {
+      step.header_.stack_delta = std::numeric_limits<int16_t>::max();
+    } else {
+      step.header_.stack_delta = static_cast<int16_t>(stack_delta);
+    }
     step.u_.logic = logic.release();
     return step;
   }
@@ -365,7 +377,8 @@ class ExpressionStep {
 
   struct Header {
     ExpressionStepKind kind;
-    uint16_t reserved;
+    // Note: This can be moved if steps are all migrated.
+    int16_t stack_delta;
     int32_t id;
   };
 
@@ -869,11 +882,13 @@ class FlatExpression {
   FlatExpression(ExecutionPath path, size_t comprehension_slots_size,
                  const cel::TypeProvider& type_provider,
                  const cel::RuntimeOptions& options,
-                 absl_nullable std::shared_ptr<google::protobuf::Arena> arena = nullptr)
+                 absl_nullable std::shared_ptr<google::protobuf::Arena> arena = nullptr,
+                 std::optional<size_t> value_stack_size = std::nullopt)
       : path_(std::move(path)),
         subexpressions_({path_}),
         comprehension_slots_size_(comprehension_slots_size),
         iterator_stack_size_(comprehension_slots_size),
+        value_stack_size_(value_stack_size.value_or(path_.size())),
         type_provider_(type_provider),
         options_(options),
         arena_(std::move(arena)) {}
@@ -883,11 +898,13 @@ class FlatExpression {
                  size_t comprehension_slots_size, size_t iterator_stack_size,
                  const cel::TypeProvider& type_provider,
                  const cel::RuntimeOptions& options,
-                 absl_nullable std::shared_ptr<google::protobuf::Arena> arena = nullptr)
+                 absl_nullable std::shared_ptr<google::protobuf::Arena> arena = nullptr,
+                 std::optional<size_t> value_stack_size = std::nullopt)
       : path_(std::move(path)),
         subexpressions_(std::move(subexpressions)),
         comprehension_slots_size_(comprehension_slots_size),
         iterator_stack_size_(iterator_stack_size),
+        value_stack_size_(value_stack_size.value_or(path_.size())),
         type_provider_(type_provider),
         options_(options),
         arena_(std::move(arena)) {}
@@ -932,6 +949,8 @@ class FlatExpression {
 
   size_t iterator_stack_size() const { return iterator_stack_size_; }
 
+  size_t value_stack_size() const { return value_stack_size_; }
+
   const cel::TypeProvider& type_provider() const { return type_provider_; }
 
  private:
@@ -939,6 +958,7 @@ class FlatExpression {
   std::vector<ExecutionPathView> subexpressions_;
   size_t comprehension_slots_size_;
   size_t iterator_stack_size_;
+  size_t value_stack_size_;
   const cel::TypeProvider& type_provider_;
   cel::RuntimeOptions options_;
   // Arena used during planning phase, may hold constant values so should be
