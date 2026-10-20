@@ -196,8 +196,8 @@ std::vector<cel::FunctionRegistry::LazyOverload> Resolver::FindLazyOverloads(
   auto prefixes = GetPrefixesFor(name);
   for (const auto& prefix : prefixes) {
     std::string qualified_name = absl::StrCat(prefix, name);
-    funcs = function_registry_.FindLazyOverloadsByArity(name, receiver_style,
-                                                        arity);
+    funcs = function_registry_.FindLazyOverloadsByArity(qualified_name,
+                                                        receiver_style, arity);
     if (!funcs.empty()) {
       return funcs;
     }

@@ -192,7 +192,6 @@ Value NoOverloadResult(absl::string_view name,
 
   // If no errors or unknowns in input args, create new CelError for missing
   // overload.
-  std::string signature;
   if (receiver_style) {
     if (args.empty()) {
       // Should not be possible, but return a sensible error in case of logic
