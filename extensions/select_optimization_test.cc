@@ -1302,6 +1302,23 @@ INSTANTIATE_TEST_SUITE_P(
             },
         },
         {
+            // -2^32, which would read element 0 if truncated to an int.
+            "select_with_repeated_index_beyond_int32",
+            "nested_test_all_types.payload.repeated_nested_message"
+            "[-4294967296].bb",
+            {{"nested_test_all_types",
+              R"pb(
+                payload { repeated_nested_message {} }
+              )pb"}},
+            ActivationSetupFn(),
+            [](const absl::StatusOr<Value>& got) {
+              ASSERT_OK_AND_ASSIGN(Value result, got);
+              ASSERT_TRUE(result->Is<ErrorValue>()) << result->DebugString();
+              EXPECT_THAT(result.GetError().NativeValue(),
+                          StatusIs(absl::StatusCode::kInvalidArgument));
+            },
+        },
+        {
             "unknown_field",
             "((false)? a.child.child : b.child).child.payload.single_int64",
             {{"a", ""},

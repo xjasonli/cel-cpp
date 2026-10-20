@@ -14,6 +14,7 @@
 
 #include "extensions/protobuf/internal/qualify.h"
 
+#include <cstdint>
 #include <string>
 #include <utility>
 
@@ -290,13 +291,13 @@ absl::StatusOr<int> ProtoQualifyState::CheckListIndex(
         cel::builtin::kIndex);
   }
 
-  int index = *qualifier.GetInt64Key();
+  int64_t index = *qualifier.AsInt();
   int size = reflection_->FieldSize(*message_, repeated_field_desc_);
   if (index < 0 || index >= size) {
     return absl::InvalidArgumentError(
         absl::StrCat("index out of bounds: index=", index, " size=", size));
   }
-  return index;
+  return static_cast<int>(index);
 }
 
 absl::Status ProtoQualifyState::ApplyAttributeQualifierList(
