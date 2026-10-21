@@ -655,5 +655,119 @@ TEST(TypeCheckerBuilderImplTest, LazyArenaInitialization) {
                 std::make_unique<TypeSpec>(PrimitiveType::kInt64))));
 }
 
+TEST(TypeCheckerBuilderImplTest, GenericCollisionsAcrossDeclarations) {
+  for (bool library : {false, true}) {
+    for (bool clone : {false, true}) {
+      for (bool overlaps : {false, true}) {
+        SCOPED_TRACE(library);
+        SCOPED_TRACE(clone);
+        SCOPED_TRACE(overlaps);
+        std::unique_ptr<TypeCheckerBuilder> builder =
+            std::make_unique<TypeCheckerBuilderImpl>(
+                internal::GetSharedTestingDescriptorPool(), CheckerOptions{});
+        const Type a = TypeParamType("A");
+        ASSERT_OK_AND_ASSIGN(
+            auto generic,
+            MakeFunctionDecl("f",
+                             MakeOverloadDecl("generic", BoolType(), a, a)));
+        if (library) {
+          ASSERT_THAT(builder->AddLibrary({"test",
+                                           [generic](TypeCheckerBuilder& b) {
+                                             return b.AddFunction(generic);
+                                           }}),
+                      IsOk());
+        } else {
+          ASSERT_THAT(builder->AddFunction(generic), IsOk());
+        }
+        if (clone) {
+          ASSERT_OK_AND_ASSIGN(auto checker, builder->Build());
+          builder = checker->ToBuilder();
+        }
+        ASSERT_OK_AND_ASSIGN(
+            auto concrete,
+            MakeFunctionDecl(
+                "f", MakeOverloadDecl(
+                         "concrete", BoolType(), IntType(),
+                         overlaps ? Type(IntType()) : Type(StringType()))));
+        ASSERT_THAT(builder->MergeFunction(concrete), IsOk());
+        auto checker = builder->Build();
+        if (overlaps) {
+          EXPECT_THAT(checker, StatusIs(absl::StatusCode::kInvalidArgument));
+        } else {
+          EXPECT_THAT(checker, IsOk());
+        }
+      }
+    }
+  }
+}
+
+TEST(TypeCheckerBuilderImplTest, SubsetFiltersBeforeGenericCollisionCheck) {
+  for (bool keep_generic : {false, true}) {
+    SCOPED_TRACE(keep_generic);
+    TypeCheckerBuilderImpl builder(internal::GetSharedTestingDescriptorPool(),
+                                   {});
+    const Type a = TypeParamType("A");
+    ASSERT_OK_AND_ASSIGN(
+        auto generic,
+        MakeFunctionDecl("f", MakeOverloadDecl("generic", BoolType(), a, a)));
+    ASSERT_THAT(builder.AddLibrary({"test",
+                                    [generic](TypeCheckerBuilder& b) {
+                                      return b.AddFunction(generic);
+                                    }}),
+                IsOk());
+    TypeCheckerSubset subset;
+    subset.library_id = "test";
+    subset.should_include_overload = [keep_generic](absl::string_view,
+                                                    const OverloadDecl&) {
+      return keep_generic;
+    };
+    ASSERT_THAT(builder.AddLibrarySubset(std::move(subset)), IsOk());
+    ASSERT_OK_AND_ASSIGN(
+        auto concrete,
+        MakeFunctionDecl("f", MakeOverloadDecl("concrete", BoolType(),
+                                               IntType(), IntType())));
+    ASSERT_THAT(builder.MergeFunction(concrete), IsOk());
+    auto checker = builder.Build();
+    if (keep_generic) {
+      EXPECT_THAT(checker, StatusIs(absl::StatusCode::kInvalidArgument));
+    } else {
+      EXPECT_THAT(checker, IsOk());
+    }
+  }
+}
+
+TEST(TypeCheckerBuilderImplTest, DisjointGenericsResolveStaticAndDynamicCalls) {
+  TypeCheckerBuilderImpl builder(internal::GetSharedTestingDescriptorPool(),
+                                 {});
+  const Type a = TypeParamType("A");
+  ASSERT_OK_AND_ASSIGN(
+      auto decl,
+      MakeFunctionDecl(
+          "f", MakeOverloadDecl("generic", IntType(), a, a),
+          MakeOverloadDecl("mixed", IntType(), IntType(), StringType())));
+  ASSERT_THAT(builder.AddFunction(decl), IsOk());
+  ASSERT_THAT(builder.AddVariable(MakeVariableDecl("x", DynType())), IsOk());
+  ASSERT_THAT(builder.AddVariable(MakeVariableDecl("y", DynType())), IsOk());
+  ASSERT_OK_AND_ASSIGN(auto checker, builder.Build());
+  struct Case {
+    const char* expression;
+    std::vector<std::string> overloads;
+  };
+  for (const auto& test :
+       std::vector<Case>{{"f(1, 1)", {"generic"}},
+                         {"f(1, 's')", {"mixed"}},
+                         {"f(x, y)", {"generic", "mixed"}}}) {
+    SCOPED_TRACE(test.expression);
+    ASSERT_OK_AND_ASSIGN(auto ast, MakeTestParsedAst(test.expression));
+    ASSERT_OK_AND_ASSIGN(auto result, checker->Check(std::move(ast)));
+    ASSERT_TRUE(result.IsValid()) << result.FormatError();
+    const auto* reference =
+        result.GetAst()->GetReference(result.GetAst()->root_expr().id());
+    ASSERT_NE(reference, nullptr);
+    EXPECT_THAT(reference->overload_id(),
+                testing::UnorderedElementsAreArray(test.overloads));
+  }
+}
+
 }  // namespace
 }  // namespace cel::checker_internal

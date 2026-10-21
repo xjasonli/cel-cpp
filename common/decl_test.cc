@@ -21,9 +21,10 @@
 #include "absl/status/status.h"
 #include "common/constant.h"
 #include "common/type.h"
+#include "google/protobuf/arena.h"
+#include "google/protobuf/descriptor.pb.h"
 #include "internal/testing.h"
 #include "internal/testing_descriptor_pool.h"
-#include "google/protobuf/arena.h"
 
 namespace cel {
 namespace {
@@ -231,7 +232,6 @@ TEST(FunctionDecl, OverloadId) {
               IntType{},
               OpaqueType(&arena, "bar",
                          {FunctionType(&arena, TypeParamType("D"), {})})),
-          MakeOverloadDecl(IntType{}, AnyType{}),
           MakeOverloadDecl(IntType{}, DurationType{}),
           MakeOverloadDecl(IntType{}, TimestampType{}),
           MakeOverloadDecl(IntType{}, IntWrapperType{}),
@@ -250,7 +250,6 @@ TEST(FunctionDecl, OverloadId) {
                   Property(&OverloadDecl::id, "hello(list<~A>)"),
                   Property(&OverloadDecl::id, "hello(map<~B,~C>)"),
                   Property(&OverloadDecl::id, "hello(bar<function<~D>>)"),
-                  Property(&OverloadDecl::id, "hello(any)"),
                   Property(&OverloadDecl::id, "hello(duration)"),
                   Property(&OverloadDecl::id, "hello(timestamp)"),
                   Property(&OverloadDecl::id, "hello(int_wrapper)"),
@@ -259,6 +258,119 @@ TEST(FunctionDecl, OverloadId) {
                   Property(&OverloadDecl::id, "string.hello()"),
                   Property(&OverloadDecl::id, "string.hello(list<bool>)"),
                   Property(&OverloadDecl::id, "string.hello(bool,dyn)")));
+}
+
+TEST(FunctionDecl, AnyOverloadId) {
+  ASSERT_OK_AND_ASSIGN(
+      auto decl,
+      MakeFunctionDecl("hello", MakeOverloadDecl(IntType{}, AnyType{})));
+  ASSERT_EQ(decl.overloads().size(), 1);
+  EXPECT_EQ(decl.overloads()[0].id(), "hello(any)");
+}
+
+TEST(FunctionDecl, GenericSignatureCollisions) {
+  google::protobuf::Arena arena;
+  const Type a = TypeParamType("A"), b = TypeParamType("B");
+  const auto list = [&](Type t) -> Type { return ListType(&arena, t); };
+  const auto opt = [&](Type t) -> Type { return OptionalType(&arena, t); };
+  const auto tag = [&](Type t) -> Type {
+    return OpaqueType(&arena, "Tag", {t});
+  };
+  const Type fn_int = FunctionType(&arena, IntType(), {IntType()});
+  const Type fn_str = FunctionType(&arena, StringType(), {StringType()});
+  const Type fn_a = FunctionType(&arena, a, {a});
+  const Type fn_b = FunctionType(&arena, b, {b});
+  const auto* proto = google::protobuf::FieldDescriptorProto::descriptor();
+  struct Case {
+    const char* name;
+    std::vector<Type> left;
+    std::vector<Type> right;
+    bool collision;
+  };
+  const std::vector<Case> cases = {
+      {"generic concrete", {a}, {IntType()}, true},
+      {"parameter rename", {a, a}, {b, b}, true},
+      {"repeated parameter", {a, a}, {IntType(), IntType()}, true},
+      {"disjoint repeated parameter", {a, a}, {IntType(), StringType()}, false},
+      {"separate parameter scopes", {a, IntType()}, {StringType(), a}, true},
+      {"occurs check", {a, list(a)}, {list(b), b}, false},
+      {"list parameter", {list(a)}, {list(IntType())}, true},
+      {"map parameter",
+       {MapType(&arena, a, b)},
+       {MapType(&arena, StringType(), IntType())},
+       true},
+      {"optional parameter", {opt(a)}, {opt(IntType())}, true},
+      {"disjoint optional constraint",
+       {a, opt(a)},
+       {IntType(), opt(StringType())},
+       false},
+      {"distinct element types",
+       {list(IntType())},
+       {list(StringType())},
+       false},
+      {"opaque parameter", {tag(a)}, {tag(IntType())}, true},
+      {"distinct opaque names",
+       {tag(a)},
+       {OpaqueType(&arena, "OtherTag", {IntType()})},
+       false},
+      {"opaque function metadata", {tag(fn_int)}, {tag(fn_str)}, false},
+      {"opaque zero-arity function metadata",
+       {tag(FunctionType(&arena, IntType(), {}))},
+       {tag(FunctionType(&arena, StringType(), {}))},
+       false},
+      {"opaque function parameter rename", {tag(fn_a)}, {tag(fn_b)}, true},
+      {"opaque function occurs check", {a, tag(fn_a)}, {tag(fn_b), b}, false},
+      {"opaque function constraint",
+       {tag(fn_a), a},
+       {tag(fn_int), StringType()},
+       false},
+      {"opaque function shared variable",
+       {tag(fn_a), a},
+       {tag(fn_int), IntType()},
+       true},
+      {"opaque function arity",
+       {tag(fn_int)},
+       {tag(FunctionType(&arena, IntType(), {IntType(), IntType()}))},
+       false},
+      {"opaque enum names",
+       {tag(EnumType(proto->FindEnumTypeByName("Type")))},
+       {tag(EnumType(proto->FindEnumTypeByName("Label")))},
+       false},
+      {"any", {AnyType()}, {IntType()}, true},
+      {"independent dynamic arguments",
+       {DynType(), DynType()},
+       {IntType(), StringType()},
+       true},
+      {"independent any arguments",
+       {AnyType(), AnyType()},
+       {IntType(), StringType()},
+       true},
+      {"nested any", {list(AnyType())}, {list(IntType())}, true},
+      {"wrapper primitive", {IntWrapperType()}, {IntType()}, true},
+      {"wrapper null", {IntWrapperType()}, {NullType()}, true},
+      {"nested wrapper", {list(IntWrapperType())}, {list(IntType())}, true},
+  };
+  for (const auto& test : cases) {
+    for (bool reverse : {false, true}) {
+      SCOPED_TRACE(test.name);
+      SCOPED_TRACE(reverse);
+      FunctionDecl decl;
+      decl.set_name("f");
+      auto left = MakeOverloadDecl("left", BoolType());
+      left.mutable_args() = reverse ? test.right : test.left;
+      auto right = MakeOverloadDecl("right", StringType());
+      right.mutable_args() = reverse ? test.left : test.right;
+      ASSERT_TRUE(decl.AddOverload(left).ok());
+      const auto status = decl.AddOverload(right);
+      if (test.collision) {
+        EXPECT_THAT(status, StatusIs(absl::StatusCode::kInvalidArgument));
+        EXPECT_EQ(decl.overloads().size(), 1);
+      } else {
+        EXPECT_TRUE(status.ok()) << status;
+        EXPECT_EQ(decl.overloads().size(), 2);
+      }
+    }
+  }
 }
 
 using common_internal::TypeIsAssignable;

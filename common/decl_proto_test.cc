@@ -128,10 +128,47 @@ INSTANTIATE_TEST_SUITE_P(
                 overloads {
                   overload_id: "foo_fn_T"
                   params { type_param: "T" }
+                  params { type_param: "T" }
                   type_params: "T"
                   result_type { primitive: BOOL }
                 }
 
+              })pb",
+            DeclType::kFunction},
+        TestCase{
+            R"pb(
+              name: "foo_fn"
+              function {
+                overloads {
+                  overload_id: "concrete"
+                  params { primitive: INT64 }
+                  result_type { primitive: BOOL }
+                }
+                overloads {
+                  overload_id: "generic"
+                  params { type_param: "T" }
+                  type_params: "T"
+                  result_type { primitive: BOOL }
+                }
+              })pb",
+            DeclType::kInvalid},
+        TestCase{
+            R"pb(
+              name: "foo_fn"
+              function {
+                overloads {
+                  overload_id: "concrete"
+                  params { primitive: INT64 }
+                  params { primitive: STRING }
+                  result_type { primitive: BOOL }
+                }
+                overloads {
+                  overload_id: "generic"
+                  params { type_param: "T" }
+                  params { type_param: "T" }
+                  type_params: "T"
+                  result_type { primitive: BOOL }
+                }
               })pb",
             DeclType::kFunction},
         // Need a descriptor to lookup a struct type.

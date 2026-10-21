@@ -26,6 +26,7 @@
 #include "absl/status/statusor.h"
 #include "absl/strings/str_cat.h"
 #include "absl/strings/string_view.h"
+#include "common/function_descriptor.h"
 #include "common/signature.h"
 #include "common/type.h"
 #include "common/type_kind.h"
@@ -103,7 +104,11 @@ bool SignaturesOverlap(const OverloadDecl& lhs, const OverloadDecl& rhs) {
         (common_internal::TypeIsAssignable(lhs_args[i], rhs_args[i]) ||
          common_internal::TypeIsAssignable(rhs_args[i], lhs_args[i]));
   }
-  return args_overlap;
+  // Preserve nullable-wrapper collisions and also compare generic constraints
+  // across the complete argument list. Each overload has its own parameter
+  // scope.
+  return args_overlap ||
+         common_internal::FunctionTypesOverlap(lhs_args, rhs_args);
 }
 
 template <typename Overload>

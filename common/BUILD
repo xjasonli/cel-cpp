@@ -248,6 +248,7 @@ cc_library(
     hdrs = ["decl.h"],
     deps = [
         ":constant",
+        ":function_descriptor",
         ":signature",
         ":type",
         ":type_kind",

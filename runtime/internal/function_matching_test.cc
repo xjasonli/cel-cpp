@@ -378,6 +378,56 @@ TEST_F(FunctionMatchingTest, PartialMapPatternsRequireObservation) {
     }
 }
 
+TEST_F(FunctionMatchingTest, ConcreteMetadataDoesNotNarrowKindOnlyPreflight) {
+  const auto* proto = google::protobuf::FieldDescriptorProto::descriptor();
+  const std::vector<std::pair<Type, Type>> cases = {
+      {FunctionType(arena(), IntType(), {IntType()}),
+       FunctionType(arena(), IntType(), {StringType()})},
+      {FunctionType(arena(), IntType(), {IntType()}),
+       FunctionType(arena(), StringType(), {IntType()})},
+      {FunctionType(arena(), IntType(), {}),
+       FunctionType(arena(), StringType(), {})},
+      {FunctionType(arena(), IntType(), {IntType()}),
+       FunctionType(arena(), IntType(), {IntType(), IntType()})},
+      {EnumType(proto->FindEnumTypeByName("Type")),
+       EnumType(proto->FindEnumTypeByName("Label"))},
+  };
+  for (const auto& types : cases) {
+    SCOPED_TRACE(types.first.DebugString());
+    SCOPED_TRACE(types.second.DebugString());
+    const std::vector<Type> left = {types.first}, right = {types.second};
+    const std::vector<Type> shallow = {
+        Type(static_cast<Kind>(types.first.kind()))};
+    EXPECT_FALSE(common_internal::FunctionTypesOverlap(left, right));
+    EXPECT_FALSE(common_internal::FunctionTypesOverlap(right, left, shallow));
+    EXPECT_TRUE(common_internal::FunctionTypesOverlap(left, shallow));
+    EXPECT_TRUE(common_internal::FunctionTypesOverlap(shallow, right));
+    EXPECT_TRUE(common_internal::FunctionTypesMatchPreflight(left, right));
+    EXPECT_TRUE(common_internal::FunctionTypesMatchPreflight(right, left));
+    EXPECT_TRUE(
+        common_internal::FunctionTypesMatchPreflight(left, right, shallow));
+    EXPECT_TRUE(
+        common_internal::FunctionTypesMatchPreflight(right, left, shallow));
+
+    const auto tag = [&](Type type) -> Type {
+      return OpaqueType(arena(), "Tag", {type});
+    };
+    const Type tag_left = tag(types.first), tag_right = tag(types.second);
+    const Value left_value = MakeOpaque(arena(), tag_left.GetOpaque());
+    const Value right_value = MakeOpaque(arena(), tag_right.GetOpaque());
+    // Probe also verifies that legacy mode still matches by kind alone.
+    Probe({tag_left}, {left_value}, true);
+    Probe({tag_left}, {right_value}, false);
+    Probe({tag_right}, {right_value}, true);
+    Probe({tag_right}, {left_value}, false);
+    const FunctionDescriptor legacy("f", false, {Kind::kOpaque});
+    EXPECT_THAT(MatchFunctionArguments(legacy, {left_value}, context(), true),
+                absl_testing::IsOkAndHolds(true));
+    EXPECT_THAT(MatchFunctionArguments(legacy, {right_value}, context(), true),
+                absl_testing::IsOkAndHolds(true));
+  }
+}
+
 TEST_F(FunctionMatchingTest, ShallowPreflightPreservesDeclarationProfiles) {
   const Type a = TypeParamType("A");
   size_t atomic = 0, outside = 0, completed = 0, placeholder = 0, kind_only = 0;

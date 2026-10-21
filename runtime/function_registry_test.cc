@@ -40,6 +40,7 @@
 #include "common/type.h"
 #include "common/value.h"
 #include "google/protobuf/arena.h"
+#include "google/protobuf/descriptor.pb.h"
 #include "internal/testing.h"
 #include "runtime/activation.h"
 #include "runtime/function.h"
@@ -724,6 +725,170 @@ TEST(FunctionRegistryTest, DistinctTypeParamScopesRejectOverlappingSignatures) {
   ASSERT_OK(registry.RegisterLazyFunction(left));
   EXPECT_THAT(registry.RegisterLazyFunction(right),
               StatusIs(absl::StatusCode::kAlreadyExists));
+}
+
+struct OpaqueMetadataCase {
+  const char* name;
+  Type left;
+  Type right;
+};
+
+std::vector<OpaqueMetadataCase> DistinctOpaqueMetadata(
+    google::protobuf::Arena* arena) {
+  const auto tag = [&](Type type) -> Type {
+    return OpaqueType(arena, "Tag", {type});
+  };
+  const auto* proto = google::protobuf::FieldDescriptorProto::descriptor();
+  const Type fn_int = FunctionType(arena, IntType(), {IntType()});
+  return {
+      {"function argument", tag(fn_int),
+       tag(FunctionType(arena, IntType(), {StringType()}))},
+      {"function result", tag(fn_int),
+       tag(FunctionType(arena, StringType(), {IntType()}))},
+      {"zero-arity function result", tag(FunctionType(arena, IntType(), {})),
+       tag(FunctionType(arena, StringType(), {}))},
+      {"function arity", tag(fn_int),
+       tag(FunctionType(arena, IntType(), {IntType(), IntType()}))},
+      {"enum name", tag(EnumType(proto->FindEnumTypeByName("Type"))),
+       tag(EnumType(proto->FindEnumTypeByName("Label")))},
+  };
+}
+
+TEST(FunctionRegistryTest, DistinctOpaqueMetadataOverloadsCanCoexist) {
+  google::protobuf::Arena arena;
+  for (const auto& test : DistinctOpaqueMetadata(&arena)) {
+    for (bool reverse : {false, true}) {
+      for (bool first_lazy : {false, true}) {
+        for (bool second_lazy : {false, true}) {
+          SCOPED_TRACE(test.name);
+          SCOPED_TRACE(reverse);
+          SCOPED_TRACE(first_lazy);
+          SCOPED_TRACE(second_lazy);
+          FunctionRegistry registry;
+          const FunctionDescriptor first("f", "first", false,
+                                         {reverse ? test.right : test.left});
+          const FunctionDescriptor second("f", "second", false,
+                                          {reverse ? test.left : test.right});
+          const auto add = [&](const FunctionDescriptor& descriptor,
+                               bool lazy) {
+            return lazy ? registry.RegisterLazyFunction(descriptor)
+                        : registry.Register(
+                              descriptor, std::make_unique<ConstIntFunction>());
+          };
+          ASSERT_OK(add(first, first_lazy));
+          ASSERT_OK(add(second, second_lazy));
+          const FunctionDescriptor duplicate("f", "duplicate", false,
+                                             first.types());
+          EXPECT_THAT(add(duplicate, !first_lazy),
+                      StatusIs(absl::StatusCode::kAlreadyExists));
+
+          EXPECT_THAT(
+              registry.FindStaticOverloadsByTypes("f", false, first.types()),
+              SizeIs(first_lazy ? 0 : 1));
+          EXPECT_THAT(
+              registry.FindLazyOverloadsByTypes("f", false, first.types()),
+              SizeIs(first_lazy ? 1 : 0));
+          EXPECT_THAT(
+              registry.FindStaticOverloadsByTypes("f", false, second.types()),
+              SizeIs(second_lazy ? 0 : 1));
+          EXPECT_THAT(
+              registry.FindLazyOverloadsByTypes("f", false, second.types()),
+              SizeIs(second_lazy ? 1 : 0));
+          EXPECT_FALSE(
+              registry.FindStaticOverloadById("f", "duplicate").has_value());
+          EXPECT_FALSE(
+              registry.FindLazyOverloadById("f", "duplicate").has_value());
+        }
+      }
+    }
+  }
+}
+
+TEST(FunctionRegistryTest, ActivationPreservesDistinctOpaqueMetadata) {
+  google::protobuf::Arena arena;
+  for (const auto& test : DistinctOpaqueMetadata(&arena)) {
+    for (bool reverse : {false, true}) {
+      SCOPED_TRACE(test.name);
+      SCOPED_TRACE(reverse);
+      Activation activation;
+      const FunctionDescriptor first("f", "first", false,
+                                     {reverse ? test.right : test.left});
+      const FunctionDescriptor second("f", "second", false,
+                                      {reverse ? test.left : test.right});
+      ASSERT_TRUE(activation.InsertFunction(
+          first, std::make_unique<ConstIntFunction>()));
+      ASSERT_TRUE(activation.InsertFunction(
+          second, std::make_unique<ConstIntFunction>()));
+      EXPECT_FALSE(activation.InsertFunction(
+          FunctionDescriptor("f", "duplicate", false, first.types()),
+          std::make_unique<ConstIntFunction>()));
+      EXPECT_THAT(activation.FindFunctionOverloads("f"), SizeIs(2));
+      const auto found_first =
+          activation.FindFunctionOverloadById("f", "first");
+      const auto found_second =
+          activation.FindFunctionOverloadById("f", "second");
+      ASSERT_TRUE(found_first.has_value());
+      ASSERT_TRUE(found_second.has_value());
+      EXPECT_EQ(found_first->descriptor, first);
+      EXPECT_EQ(found_second->descriptor, second);
+      EXPECT_FALSE(
+          activation.FindFunctionOverloadById("f", "duplicate").has_value());
+    }
+  }
+}
+
+TEST(FunctionRegistryTest, LegacyMetadataPlaceholdersStillRejectOverlaps) {
+  google::protobuf::Arena arena;
+  const auto* proto = google::protobuf::FieldDescriptorProto::descriptor();
+  for (const Type& type : {Type(FunctionType(&arena, IntType(), {})),
+                           Type(FunctionType(&arena, IntType(), {IntType()})),
+                           Type(EnumType(proto->FindEnumTypeByName("Type")))}) {
+    const Kind kind = static_cast<Kind>(type.kind());
+    for (bool nested : {false, true}) {
+      const FunctionDescriptor legacy =
+          nested ? FunctionDescriptor("f", "", false,
+                                      {OpaqueType(&arena, "Tag", {Type(kind)})})
+                 : FunctionDescriptor("f", false, {kind});
+      const FunctionDescriptor concrete(
+          "f", "concrete", false,
+          {nested ? Type(OpaqueType(&arena, "Tag", {type})) : type});
+      for (bool legacy_first : {false, true}) {
+        for (bool first_lazy : {false, true}) {
+          for (bool second_lazy : {false, true}) {
+            SCOPED_TRACE(type.DebugString());
+            SCOPED_TRACE(nested);
+            SCOPED_TRACE(legacy_first);
+            SCOPED_TRACE(first_lazy);
+            SCOPED_TRACE(second_lazy);
+            const auto& first = legacy_first ? legacy : concrete;
+            const auto& second = legacy_first ? concrete : legacy;
+            FunctionRegistry registry;
+            const auto add = [&](const FunctionDescriptor& descriptor,
+                                 bool lazy) {
+              return lazy ? registry.RegisterLazyFunction(descriptor)
+                          : registry.Register(
+                                descriptor,
+                                std::make_unique<ConstIntFunction>());
+            };
+            ASSERT_OK(add(first, first_lazy));
+            EXPECT_THAT(add(second, second_lazy),
+                        StatusIs(absl::StatusCode::kAlreadyExists));
+            EXPECT_THAT(registry.FindStaticOverloadsByArity("f", false, 1),
+                        SizeIs(first_lazy ? 0 : 1));
+            EXPECT_THAT(registry.FindLazyOverloadsByArity("f", false, 1),
+                        SizeIs(first_lazy ? 1 : 0));
+
+            Activation activation;
+            ASSERT_TRUE(activation.InsertFunction(
+                first, std::make_unique<ConstIntFunction>()));
+            EXPECT_FALSE(activation.InsertFunction(
+                second, std::make_unique<ConstIntFunction>()));
+            EXPECT_THAT(activation.FindFunctionOverloads("f"), SizeIs(1));
+          }
+        }
+      }
+    }
+  }
 }
 
 // Reject duplicate IDs rather than silently redirecting existing ID lookups

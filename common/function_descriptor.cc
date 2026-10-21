@@ -114,8 +114,12 @@ size_t Build(FunctionTypeMatchState& state, const Type& type, size_t scope,
       (mode != TypeMatchMode::kRuntime && type.IsError())) {
     return NewNode(state, DynType());
   }
-  if ((mode != TypeMatchMode::kRuntime &&
+  // Preflight is kind-only for functions and enums. Overlap retains their
+  // concrete metadata, while empty legacy descriptors remain kind wildcards.
+  if ((mode == TypeMatchMode::kPreflight &&
        (type.IsFunction() || type.IsEnum())) ||
+      (type.IsFunction() && !type.GetFunction()) ||
+      (type.IsEnum() && !type.GetEnum()) ||
       (type.IsStruct() && !type.GetStruct()) ||
       (type.IsOpaque() && !type.GetOpaque())) {
     return NewNode(state, type, true);
@@ -125,7 +129,8 @@ size_t Build(FunctionTypeMatchState& state, const Type& type, size_t scope,
     return AddFunctionTypeAtomic(state, type);
   }
   std::vector<size_t> parameters;
-  if (type.IsList() || type.IsMap() || type.IsOpaque()) {
+  if (type.IsList() || type.IsMap() || type.IsOpaque() ||
+      (mode == TypeMatchMode::kOverlap && type.IsFunction())) {
     for (const Type& parameter : type.GetParameters()) {
       parameters.push_back(Build(state, parameter, scope, mode));
     }
@@ -215,7 +220,7 @@ bool Unify(FunctionTypeMatchState& state, size_t lhs, size_t rhs) {
   if (state.nodes[lhs].atomic || state.nodes[rhs].atomic) {
     return CompareFunctionTypes(a, b) == 0 && Bind(state, lhs, rhs);
   }
-  if ((a.IsStruct() || a.IsOpaque()) && a.name() != b.name()) {
+  if ((a.IsStruct() || a.IsOpaque() || a.IsEnum()) && a.name() != b.name()) {
     return false;
   }
   if (state.nodes[lhs].parameters.size() !=
